@@ -39,8 +39,7 @@ impl App {
             match response {
                 DbResponse::Connected => {
                     self.statusbar.connected = true;
-                    self.results.error = None;
-                    // Fetch schema for autocomplete
+                    self.results.clear();
                     let _ = self.db_tx.send(DbRequest::FetchSchema);
                 }
                 DbResponse::Schema(schema) => {
@@ -50,11 +49,10 @@ impl App {
                 DbResponse::QueryResult(result) => {
                     self.statusbar.row_count = Some(result.rows.len());
                     self.statusbar.exec_time_ms = Some(result.execution_time_ms);
-                    self.results.result = Some(result);
-                    self.results.error = None;
+                    self.results.set_result(result);
                 }
                 DbResponse::Error(e) => {
-                    self.results.error = Some(e);
+                    self.results.set_error(e);
                 }
                 DbResponse::Disconnected => {
                     self.statusbar.connected = false;
@@ -138,7 +136,7 @@ impl eframe::App for App {
 
             ui.separator();
 
-            self.results.show(ui);
+            self.results.show(ctx, ui);
         });
     }
 }

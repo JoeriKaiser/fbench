@@ -11,7 +11,6 @@ pub struct StatusBar {
 impl StatusBar {
     pub fn show(&self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            // Connection status
             let (status_text, color) = if self.connected {
                 (format!("● Connected to {}", self.db_name), egui::Color32::GREEN)
             } else {
@@ -21,13 +20,11 @@ impl StatusBar {
 
             ui.separator();
 
-            // Row count
             if let Some(count) = self.row_count {
                 ui.label(format!("{} rows", count));
                 ui.separator();
             }
 
-            // Execution time
             if let Some(ms) = self.exec_time_ms {
                 ui.label(format!("{}ms", ms));
             }

@@ -50,7 +50,6 @@ impl ConnectionDialog {
             testing: false,
         };
 
-        // Auto-select last used connection
         if let Some(last_name) = last_used {
             if let Some(idx) = dialog.saved_connections.iter().position(|c| c.name == last_name) {
                 dialog.selected_index = Some(idx);
@@ -325,7 +324,6 @@ impl ConnectionDialog {
                                 .min_size(egui::vec2(80.0, 28.0));
                             if ui.add(connect_btn).clicked() {
                                 if let Some(config) = self.build_config() {
-                                    // Save as last used
                                     if !self.connection_name.trim().is_empty() {
                                         let _ = self.store.set_last_used(self.connection_name.trim());
                                     }

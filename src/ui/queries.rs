@@ -69,7 +69,6 @@ impl QueriesPanel {
         self.selected_index = None;
     }
 
-    /// Show save dialog popup, returns true if saved
     pub fn show_save_popup(&mut self, ctx: &egui::Context, current_sql: &str) {
         if !self.show_save_dialog {
             return;
@@ -114,7 +113,6 @@ impl QueriesPanel {
             });
     }
 
-    /// Show left panel with saved queries, returns Some(sql) if one was clicked
     pub fn show_panel(&mut self, ui: &mut egui::Ui) -> Option<String> {
         let mut result = None;
 

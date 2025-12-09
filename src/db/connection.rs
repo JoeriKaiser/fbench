@@ -2,6 +2,7 @@ use sqlx::{postgres::{PgPool, PgPoolOptions}, Column, Row, ValueRef};
 use tokio::sync::mpsc;
 
 use super::{ConnectionConfig, DbRequest, DbResponse, QueryResult, SchemaInfo, ColumnInfo};
+const MAX_VALUE_LEN: usize = 10_000;
 
 pub struct DbWorker {
     pool: Option<PgPool>,
@@ -142,14 +143,15 @@ impl DbWorker {
                     rows[0].columns().iter().map(|c| c.name().to_string()).collect()
                 };
 
-                let data: Vec<Vec<String>> = rows
-                    .iter()
-                    .map(|row| {
-                        (0..row.len())
-                            .map(|i| format_value(row, i))
-                            .collect()
-                    })
-                    .collect();
+                let mut data: Vec<Vec<String>> = Vec::with_capacity(rows.len());
+                
+                for row in &rows {
+                    let mut row_data: Vec<String> = Vec::with_capacity(row.len());
+                    for i in 0..row.len() {
+                        row_data.push(format_value(row, i));
+                    }
+                    data.push(row_data);
+                }
 
                 DbResponse::QueryResult(QueryResult {
                     columns,
@@ -170,27 +172,64 @@ impl DbWorker {
 }
 
 fn format_value(row: &sqlx::postgres::PgRow, i: usize) -> String {
-    row.try_get_raw(i)
-        .ok()
-        .and_then(|v| {
-            if v.is_null() {
-                Some("NULL".to_string())
-            } else {
-                row.try_get::<String, _>(i).ok()
-                    .or_else(|| row.try_get::<i16, _>(i).ok().map(|n| n.to_string()))
-                    .or_else(|| row.try_get::<i32, _>(i).ok().map(|n| n.to_string()))
-                    .or_else(|| row.try_get::<i64, _>(i).ok().map(|n| n.to_string()))
-                    .or_else(|| row.try_get::<f32, _>(i).ok().map(|n| n.to_string()))
-                    .or_else(|| row.try_get::<f64, _>(i).ok().map(|n| n.to_string()))
-                    .or_else(|| row.try_get::<bool, _>(i).ok().map(|b| b.to_string()))
-                    .or_else(|| row.try_get::<chrono::NaiveDateTime, _>(i).ok().map(|d| d.to_string()))
-                    .or_else(|| row.try_get::<chrono::DateTime<chrono::Utc>, _>(i).ok().map(|d| d.to_string()))
-                    .or_else(|| row.try_get::<chrono::NaiveDate, _>(i).ok().map(|d| d.to_string()))
-                    .or_else(|| row.try_get::<serde_json::Value, _>(i).ok().map(|j| j.to_string()))
-                    .or_else(|| row.try_get::<uuid::Uuid, _>(i).ok().map(|u| u.to_string()))
-            }
-        })
-        .unwrap_or_else(|| "?".to_string())
+    let raw = match row.try_get_raw(i) {
+        Ok(v) => v,
+        Err(_) => return "?".to_string(),
+    };
+
+    if raw.is_null() {
+        return "NULL".to_string();
+    }
+
+    let value = row.try_get::<String, _>(i).ok()
+        .or_else(|| row.try_get::<i32, _>(i).ok().map(|n| n.to_string()))
+        .or_else(|| row.try_get::<i64, _>(i).ok().map(|n| n.to_string()))
+        .or_else(|| row.try_get::<i16, _>(i).ok().map(|n| n.to_string()))
+        .or_else(|| row.try_get::<f64, _>(i).ok().map(|n| format_float(n)))
+        .or_else(|| row.try_get::<f32, _>(i).ok().map(|n| format_float(n as f64)))
+        .or_else(|| row.try_get::<bool, _>(i).ok().map(|b| b.to_string()))
+        .or_else(|| row.try_get::<chrono::NaiveDateTime, _>(i).ok().map(|d| d.to_string()))
+        .or_else(|| row.try_get::<chrono::DateTime<chrono::Utc>, _>(i).ok().map(|d| d.to_string()))
+        .or_else(|| row.try_get::<chrono::NaiveDate, _>(i).ok().map(|d| d.to_string()))
+        .or_else(|| row.try_get::<uuid::Uuid, _>(i).ok().map(|u| u.to_string()))
+        .or_else(|| row.try_get::<serde_json::Value, _>(i).ok().map(|j| format_json(&j)))
+        .or_else(|| row.try_get::<Vec<f32>, _>(i).ok().map(|v| format_vector(&v)))
+        .or_else(|| row.try_get::<Vec<f64>, _>(i).ok().map(|v| format_vector(&v)))
+        .unwrap_or_else(|| "?".to_string());
+
+    if value.len() > MAX_VALUE_LEN {
+        let mut truncated = value[..MAX_VALUE_LEN].to_string();
+        truncated.push_str("...[truncated]");
+        truncated
+    } else {
+        value
+    }
+}
+
+#[inline]
+fn format_float(n: f64) -> String {
+    if n.fract() == 0.0 {
+        format!("{:.0}", n)
+    } else {
+        format!("{:.6}", n).trim_end_matches('0').trim_end_matches('.').to_string()
+    }
+}
+
+fn format_json(value: &serde_json::Value) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "?".to_string())
+}
+
+fn format_vector<T: std::fmt::Display>(v: &[T]) -> String {
+    if v.len() <= 5 {
+        format!("[{}]", v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", "))
+    } else {
+        format!(
+            "[{}, {}, {}, ... ({} more) ..., {}, {}]",
+            v[0], v[1], v[2],
+            v.len() - 5,
+            v[v.len() - 2], v[v.len() - 1]
+        )
+    }
 }
 
 pub fn spawn_db_worker() -> (mpsc::UnboundedSender<DbRequest>, mpsc::UnboundedReceiver<DbResponse>) {

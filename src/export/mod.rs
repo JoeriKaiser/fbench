@@ -33,16 +33,14 @@ pub fn export_results(result: &QueryResult, format: ExportFormat) {
 }
 
 fn export_csv(result: &QueryResult) -> String {
-    let mut output = String::new();
+    let mut output = String::with_capacity(result.rows.len() * 100);
     
-    // Header
     output.push_str(&result.columns.iter()
         .map(|c| escape_csv(c))
         .collect::<Vec<_>>()
         .join(","));
     output.push('\n');
 
-    // Rows
     for row in &result.rows {
         output.push_str(&row.iter()
             .map(|c| escape_csv(c))
@@ -55,7 +53,7 @@ fn export_csv(result: &QueryResult) -> String {
 }
 
 fn escape_csv(s: &str) -> String {
-    if s.contains(',') || s.contains('"') || s.contains('\n') {
+    if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {
         format!("\"{}\"", s.replace('"', "\"\""))
     } else {
         s.to_string()
@@ -70,6 +68,16 @@ fn export_json(result: &QueryResult) -> String {
                 .map(|(col, val)| {
                     let json_val = if val == "NULL" {
                         serde_json::Value::Null
+                    } else if let Ok(n) = val.parse::<i64>() {
+                        serde_json::Value::Number(n.into())
+                    } else if let Ok(n) = val.parse::<f64>() {
+                        serde_json::Number::from_f64(n)
+                            .map(serde_json::Value::Number)
+                            .unwrap_or(serde_json::Value::String(val.clone()))
+                    } else if val == "true" {
+                        serde_json::Value::Bool(true)
+                    } else if val == "false" {
+                        serde_json::Value::Bool(false)
                     } else {
                         serde_json::Value::String(val.clone())
                     };
@@ -84,13 +92,15 @@ fn export_json(result: &QueryResult) -> String {
 }
 
 fn export_xml(result: &QueryResult) -> String {
-    let mut output = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<results>\n");
+    let mut output = String::with_capacity(result.rows.len() * 200);
+    output.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<results>\n");
 
     for row in &result.rows {
         output.push_str("  <row>\n");
         for (col, val) in result.columns.iter().zip(row.iter()) {
+            let safe_col = sanitize_xml_tag(col);
             let escaped_val = escape_xml(val);
-            output.push_str(&format!("    <{}>{}</{}>\n", col, escaped_val, col));
+            output.push_str(&format!("    <{}>{}</{}>\n", safe_col, escaped_val, safe_col));
         }
         output.push_str("  </row>\n");
     }
@@ -99,10 +109,35 @@ fn export_xml(result: &QueryResult) -> String {
     output
 }
 
+fn sanitize_xml_tag(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    for (i, c) in s.chars().enumerate() {
+        if i == 0 && c.is_ascii_digit() {
+            result.push('_');
+        }
+        if c.is_alphanumeric() || c == '_' || c == '-' {
+            result.push(c);
+        } else {
+            result.push('_');
+        }
+    }
+    if result.is_empty() {
+        result.push_str("column");
+    }
+    result
+}
+
 fn escape_xml(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
+    let mut result = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => result.push_str("&amp;"),
+            '<' => result.push_str("&lt;"),
+            '>' => result.push_str("&gt;"),
+            '"' => result.push_str("&quot;"),
+            '\'' => result.push_str("&apos;"),
+            _ => result.push(c),
+        }
+    }
+    result
 }
