@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-eframe = "0.31"
-egui_extras = { version = "0.31", features = ["default"] }
+eframe = "0.33"
+egui_extras = { version = "0.33", features = ["default"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
 sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "mysql", "chrono", "uuid", "json"] }
 serde = { version = "1", features = ["derive"] }
