@@ -24,15 +24,45 @@ impl ConnectionConfig {
 
 #[derive(Debug, Clone)]
 pub struct ColumnInfo {
-    pub table_name: String,
-    pub column_name: String,
+    pub name: String,
     pub data_type: String,
+    pub nullable: bool,
+    pub default_value: Option<String>,
+    pub is_primary_key: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct IndexInfo {
+    pub name: String,
+    pub columns: Vec<String>,
+    pub is_unique: bool,
+    pub is_primary: bool,
+    pub index_type: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConstraintInfo {
+    pub name: String,
+    pub constraint_type: String,
+    pub columns: Vec<String>,
+    pub foreign_table: Option<String>,
+    pub foreign_columns: Option<Vec<String>>,
+    pub check_clause: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TableInfo {
+    pub name: String,
+    pub columns: Vec<ColumnInfo>,
+    pub indexes: Vec<IndexInfo>,
+    pub constraints: Vec<ConstraintInfo>,
+    pub row_estimate: i64,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct SchemaInfo {
-    pub tables: Vec<String>,
-    pub columns: Vec<ColumnInfo>,
+    pub tables: Vec<TableInfo>,
+    pub views: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -42,6 +72,7 @@ pub enum DbRequest {
     Execute(String),
     ListTables,
     FetchSchema,
+    FetchTableDetails(String),
     Disconnect,
 }
 
@@ -51,6 +82,7 @@ pub enum DbResponse {
     TestResult(Result<(), String>),
     QueryResult(QueryResult),
     Schema(SchemaInfo),
+    TableDetails(TableInfo),
     Error(String),
     Disconnected,
 }

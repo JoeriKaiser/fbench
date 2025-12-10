@@ -26,7 +26,7 @@ const SQL_FUNCTIONS: &[&str] = &[
 
 pub struct Editor {
     pub query: String,
-    pub schema: SchemaInfo,
+    schema: SchemaInfo,
     autocomplete: AutocompleteState,
 }
 
@@ -171,22 +171,24 @@ impl Editor {
         }
 
         for table in &self.schema.tables {
-            if table.to_lowercase().starts_with(&word_lower) {
+            if table.name.to_lowercase().starts_with(&word_lower) {
                 suggestions.push(Suggestion {
-                    display: table.clone(),
-                    insert: table.clone(),
+                    display: table.name.clone(),
+                    insert: table.name.clone(),
                     kind: SuggestionKind::Table,
                 });
             }
         }
 
-        for col in &self.schema.columns {
-            if col.column_name.to_lowercase().starts_with(&word_lower) {
-                suggestions.push(Suggestion {
-                    display: format!("{} ({})", col.column_name, col.table_name),
-                    insert: col.column_name.clone(),
-                    kind: SuggestionKind::Column,
-                });
+        for table in &self.schema.tables {
+            for col in &table.columns {
+                if col.name.to_lowercase().starts_with(&word_lower) {
+                    suggestions.push(Suggestion {
+                        display: format!("{} ({})", col.name, table.name),
+                        insert: col.name.clone(),
+                        kind: SuggestionKind::Column,
+                    });
+                }
             }
         }
 

@@ -90,10 +90,6 @@ impl Results {
         self.sorted_indices.clear();
         self.sort_state = None;
     }
-    
-    pub fn get_result(&self) -> Option<&QueryResult> {
-        self.result.as_ref()
-    }
 
     fn calculate_column_widths(result: &QueryResult) -> Vec<f32> {
         let mut widths: Vec<f32> = result.columns.iter()
