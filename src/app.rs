@@ -1,7 +1,7 @@
 use eframe::egui;
 use tokio::sync::mpsc;
 
-use crate::db::{spawn_db_worker, DbRequest, DbResponse, SchemaInfo};
+use crate::db::{spawn_db_worker, DatabaseType, DbRequest, DbResponse, SchemaInfo};
 use crate::ui::{ConnectionDialog, Editor, QueriesPanel, Results, StatusBar, SchemaPanel, TableDetailPanel};
 
 #[derive(Clone, Copy, PartialEq, Default)]
@@ -20,6 +20,8 @@ pub struct App {
     schema_panel: SchemaPanel,
     table_detail: TableDetailPanel,
     left_panel_tab: LeftPanelTab,
+    
+    current_db_type: Option<DatabaseType>,
 
     db_tx: mpsc::UnboundedSender<DbRequest>,
     db_rx: mpsc::UnboundedReceiver<DbResponse>,
@@ -38,6 +40,7 @@ impl App {
             schema_panel: SchemaPanel::default(),
             table_detail: TableDetailPanel::default(),
             left_panel_tab: LeftPanelTab::default(),
+            current_db_type: None,
             db_tx,
             db_rx,
         }
@@ -48,8 +51,10 @@ impl App {
             self.connection_dialog.handle_db_response(&response);
             
             match response {
-                DbResponse::Connected => {
+                DbResponse::Connected(db_type) => {
                     self.statusbar.connected = true;
+                    self.statusbar.db_type = Some(db_type);
+                    self.current_db_type = Some(db_type);
                     self.results.clear();
                     let _ = self.db_tx.send(DbRequest::FetchSchema);
                 }
@@ -70,7 +75,9 @@ impl App {
                 }
                 DbResponse::Disconnected => {
                     self.statusbar.connected = false;
+                    self.statusbar.db_type = None;
                     self.statusbar.db_name.clear();
+                    self.current_db_type = None;
                     self.schema_panel.set_schema(SchemaInfo::default());
                     self.editor.set_schema(SchemaInfo::default());
                 }
@@ -84,7 +91,10 @@ impl App {
     }
 
     fn select_table_data(&mut self, table_name: &str) {
-        let sql = format!("SELECT * FROM \"{}\" LIMIT 100;", table_name);
+        let sql = match self.current_db_type {
+            Some(DatabaseType::MySQL) => format!("SELECT * FROM `{}` LIMIT 100;", table_name),
+            _ => format!("SELECT * FROM \"{}\" LIMIT 100;", table_name),
+        };
         self.editor.query = sql.clone();
         if self.statusbar.connected {
             self.execute_query(&sql);

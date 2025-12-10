@@ -1,9 +1,10 @@
 use eframe::egui;
 use tokio::sync::mpsc;
-use crate::db::{ConnectionConfig, DbRequest, DbResponse};
+use crate::db::{ConnectionConfig, DatabaseType, DbRequest, DbResponse};
 use crate::config::{SavedConnection, ConnectionStore};
 
 pub struct ConnectionDialog {
+    pub db_type: DatabaseType,
     pub host: String,
     pub port: String,
     pub user: String,
@@ -34,6 +35,7 @@ impl ConnectionDialog {
         let last_used = store.get_last_used();
         
         let mut dialog = Self {
+            db_type: DatabaseType::PostgreSQL,
             host: "localhost".to_string(),
             port: "5432".to_string(),
             user: "postgres".to_string(),
@@ -65,7 +67,7 @@ impl ConnectionDialog {
             self.testing = false;
             match result {
                 Ok(()) => {
-                    self.status_message = Some(("✓ Connection successful!".into(), false));
+                    self.status_message = Some(("✔ Connection successful!".into(), false));
                 }
                 Err(e) => {
                     self.status_message = Some((format!("✗ {}", e), true));
@@ -78,6 +80,7 @@ impl ConnectionDialog {
         if let Some(idx) = self.selected_index {
             if let Some(conn) = self.saved_connections.get(idx) {
                 self.connection_name = conn.name.clone();
+                self.db_type = conn.db_type;
                 self.host = conn.host.clone();
                 self.port = conn.port.to_string();
                 self.user = conn.user.clone();
@@ -96,14 +99,37 @@ impl ConnectionDialog {
 
     fn clear_form(&mut self) {
         self.connection_name.clear();
+        self.db_type = DatabaseType::PostgreSQL;
         self.host = "localhost".to_string();
-        self.port = "5432".to_string();
+        self.port = self.db_type.default_port().to_string();
         self.user = "postgres".to_string();
         self.password.clear();
         self.database = "postgres".to_string();
         self.schema.clear();
         self.save_password = false;
         self.selected_index = None;
+    }
+
+    fn on_db_type_changed(&mut self) {
+        let pg_port = DatabaseType::PostgreSQL.default_port().to_string();
+        let mysql_port = DatabaseType::MySQL.default_port().to_string();
+        
+        if self.port == pg_port || self.port == mysql_port {
+            self.port = self.db_type.default_port().to_string();
+        }
+        
+        match self.db_type {
+            DatabaseType::PostgreSQL => {
+                if self.user == "root" {
+                    self.user = "postgres".to_string();
+                }
+            }
+            DatabaseType::MySQL => {
+                if self.user == "postgres" {
+                    self.user = "root".to_string();
+                }
+            }
+        }
     }
 
     fn save_current(&mut self) {
@@ -120,6 +146,7 @@ impl ConnectionDialog {
 
         let conn = SavedConnection {
             name: name.to_string(),
+            db_type: self.db_type,
             host: self.host.clone(),
             port,
             user: self.user.clone(),
@@ -167,6 +194,7 @@ impl ConnectionDialog {
     fn build_config(&self) -> Option<ConnectionConfig> {
         let port = self.port.parse().ok()?;
         Some(ConnectionConfig {
+            db_type: self.db_type,
             host: self.host.clone(),
             port,
             user: self.user.clone(),
@@ -186,8 +214,8 @@ impl ConnectionDialog {
         egui::Window::new("Connect to Database")
             .collapsible(false)
             .resizable(true)
-            .default_width(500.0)
-            .min_width(400.0)
+            .default_width(550.0)
+            .min_width(450.0)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -197,12 +225,17 @@ impl ConnectionDialog {
                         ui.add_space(4.0);
                         
                         egui::ScrollArea::vertical()
-                            .max_height(200.0)
+                            .max_height(250.0)
                             .show(ui, |ui| {
                                 let mut clicked_idx = None;
                                 for (idx, conn) in self.saved_connections.iter().enumerate() {
                                     let selected = self.selected_index == Some(idx);
-                                    if ui.selectable_label(selected, &conn.name).clicked() {
+                                    let icon = match conn.db_type {
+                                        DatabaseType::PostgreSQL => "🐘",
+                                        DatabaseType::MySQL => "🐬",
+                                    };
+                                    let label = format!("{} {}", icon, conn.name);
+                                    if ui.selectable_label(selected, label).clicked() {
                                         clicked_idx = Some(idx);
                                     }
                                 }
@@ -223,7 +256,7 @@ impl ConnectionDialog {
                     ui.separator();
 
                     ui.vertical(|ui| {
-                        ui.set_min_width(280.0);
+                        ui.set_min_width(320.0);
                         
                         egui::Grid::new("connection_grid")
                             .num_columns(2)
@@ -231,28 +264,51 @@ impl ConnectionDialog {
                             .show(ui, |ui| {
                                 ui.label("Name:");
                                 ui.add(egui::TextEdit::singleline(&mut self.connection_name)
-                                    .desired_width(180.0)
+                                    .desired_width(200.0)
                                     .hint_text("My Database"));
                                 ui.end_row();
 
+                                ui.label("Database Type:");
+                                let mut type_changed = false;
+                                egui::ComboBox::from_id_salt("db_type")
+                                    .selected_text(self.db_type.display_name())
+                                    .width(200.0)
+                                    .show_ui(ui, |ui| {
+                                        for db_type in DatabaseType::all() {
+                                            let icon = match db_type {
+                                                DatabaseType::PostgreSQL => "🐘",
+                                                DatabaseType::MySQL => "🐬",
+                                            };
+                                            let label = format!("{} {}", icon, db_type.display_name());
+                                            if ui.selectable_value(&mut self.db_type, *db_type, label).changed() {
+                                                type_changed = true;
+                                            }
+                                        }
+                                    });
+                                ui.end_row();
+
+                                if type_changed {
+                                    self.on_db_type_changed();
+                                }
+
                                 ui.label("Host:");
                                 ui.add(egui::TextEdit::singleline(&mut self.host)
-                                    .desired_width(180.0));
+                                    .desired_width(200.0));
                                 ui.end_row();
 
                                 ui.label("Port:");
                                 ui.add(egui::TextEdit::singleline(&mut self.port)
-                                    .desired_width(180.0));
+                                    .desired_width(200.0));
                                 ui.end_row();
 
                                 ui.label("User:");
                                 ui.add(egui::TextEdit::singleline(&mut self.user)
-                                    .desired_width(180.0));
+                                    .desired_width(200.0));
                                 ui.end_row();
 
                                 ui.label("Password:");
                                 ui.add(egui::TextEdit::singleline(&mut self.password)
-                                    .desired_width(180.0)
+                                    .desired_width(200.0)
                                     .password(true));
                                 ui.end_row();
 
@@ -262,14 +318,16 @@ impl ConnectionDialog {
 
                                 ui.label("Database:");
                                 ui.add(egui::TextEdit::singleline(&mut self.database)
-                                    .desired_width(180.0));
+                                    .desired_width(200.0));
                                 ui.end_row();
 
-                                ui.label("Schema:");
-                                ui.add(egui::TextEdit::singleline(&mut self.schema)
-                                    .desired_width(180.0)
-                                    .hint_text("optional"));
-                                ui.end_row();
+                                if self.db_type == DatabaseType::PostgreSQL {
+                                    ui.label("Schema:");
+                                    ui.add(egui::TextEdit::singleline(&mut self.schema)
+                                        .desired_width(200.0)
+                                        .hint_text("optional"));
+                                    ui.end_row();
+                                }
                             });
 
                         ui.add_space(12.0);

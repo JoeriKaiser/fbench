@@ -1,10 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use crate::db::DatabaseType;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedConnection {
     pub name: String,
+    #[serde(default)]
+    pub db_type: DatabaseType,
     pub host: String,
     pub port: u16,
     pub user: String,

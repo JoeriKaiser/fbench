@@ -1,6 +1,7 @@
 use eframe::egui::{self, text::LayoutJob, Color32, FontId, TextFormat};
 use crate::db::SchemaInfo;
 
+// Combined SQL keywords for PostgreSQL and MySQL
 const SQL_KEYWORDS: &[&str] = &[
     "SELECT", "FROM", "WHERE", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER",
     "TABLE", "INDEX", "VIEW", "INTO", "VALUES", "SET", "AND", "OR", "NOT", "NULL",
@@ -9,19 +10,64 @@ const SQL_KEYWORDS: &[&str] = &[
     "UNION", "ALL", "EXISTS", "CASE", "WHEN", "THEN", "ELSE", "END", "ASC", "DESC",
     "PRIMARY", "KEY", "FOREIGN", "REFERENCES", "CONSTRAINT", "DEFAULT", "CHECK",
     "UNIQUE", "CASCADE", "RETURNING", "WITH", "RECURSIVE", "OVER", "PARTITION",
+    // MySQL specific
+    "SHOW", "DESCRIBE", "EXPLAIN", "USE", "DATABASE", "DATABASES", "TABLES", "COLUMNS",
+    "ENGINE", "AUTO_INCREMENT", "IF", "SCHEMA", "SCHEMAS", "TRUNCATE", "RENAME",
+    "PROCEDURE", "FUNCTION", "TRIGGER", "EVENT", "GRANT", "REVOKE", "COMMIT", "ROLLBACK",
+    "START", "TRANSACTION", "SAVEPOINT", "LOCK", "UNLOCK", "CALL",
 ];
 
 const SQL_TYPES: &[&str] = &[
-    "INT", "INTEGER", "BIGINT", "SMALLINT", "SERIAL", "BIGSERIAL", "TEXT", "VARCHAR",
-    "CHAR", "BOOLEAN", "BOOL", "DATE", "TIME", "TIMESTAMP", "TIMESTAMPTZ", "UUID",
-    "JSON", "JSONB", "NUMERIC", "DECIMAL", "REAL", "FLOAT", "DOUBLE", "BYTEA",
+    // Common types
+    "INT", "INTEGER", "BIGINT", "SMALLINT", "TINYINT", "MEDIUMINT",
+    "TEXT", "VARCHAR", "CHAR", "BOOLEAN", "BOOL",
+    "DATE", "TIME", "DATETIME", "TIMESTAMP", "TIMESTAMPTZ", "YEAR",
+    "NUMERIC", "DECIMAL", "REAL", "FLOAT", "DOUBLE",
+    // PostgreSQL specific
+    "SERIAL", "BIGSERIAL", "SMALLSERIAL", "UUID", "JSON", "JSONB", "BYTEA",
+    "INET", "CIDR", "MACADDR", "INTERVAL", "POINT", "LINE", "POLYGON",
+    "ARRAY", "MONEY", "BIT", "VARBIT", "XML", "TSQUERY", "TSVECTOR",
+    // MySQL specific
+    "BLOB", "TINYBLOB", "MEDIUMBLOB", "LONGBLOB",
+    "TINYTEXT", "MEDIUMTEXT", "LONGTEXT",
+    "ENUM", "SET", "BINARY", "VARBINARY", "GEOMETRY",
+    "UNSIGNED", "SIGNED", "ZEROFILL",
 ];
 
 const SQL_FUNCTIONS: &[&str] = &[
-    "COUNT", "SUM", "AVG", "MIN", "MAX", "COALESCE", "NULLIF", "NOW", "CURRENT_DATE",
-    "CURRENT_TIMESTAMP", "EXTRACT", "TO_CHAR", "TO_DATE", "CAST", "ARRAY_AGG",
-    "STRING_AGG", "ROW_NUMBER", "RANK", "DENSE_RANK", "LAG", "LEAD", "FIRST_VALUE",
-    "LAST_VALUE", "LOWER", "UPPER", "TRIM", "LENGTH", "SUBSTRING", "REPLACE", "CONCAT",
+    // Aggregate functions
+    "COUNT", "SUM", "AVG", "MIN", "MAX", "COALESCE", "NULLIF",
+    // Date/time functions
+    "NOW", "CURRENT_DATE", "CURRENT_TIMESTAMP", "CURRENT_TIME",
+    "EXTRACT", "DATE_FORMAT", "STR_TO_DATE", "DATEDIFF", "DATE_ADD", "DATE_SUB",
+    "YEAR", "MONTH", "DAY", "HOUR", "MINUTE", "SECOND",
+    // String functions
+    "CONCAT", "CONCAT_WS", "SUBSTRING", "SUBSTR", "LEFT", "RIGHT",
+    "LOWER", "UPPER", "TRIM", "LTRIM", "RTRIM", "LENGTH", "CHAR_LENGTH",
+    "REPLACE", "REVERSE", "REPEAT", "SPACE", "LPAD", "RPAD",
+    "INSTR", "LOCATE", "POSITION", "FIELD", "FIND_IN_SET",
+    // Type conversion
+    "CAST", "CONVERT", "TO_CHAR", "TO_DATE", "TO_NUMBER",
+    // Window functions
+    "ROW_NUMBER", "RANK", "DENSE_RANK", "NTILE",
+    "LAG", "LEAD", "FIRST_VALUE", "LAST_VALUE", "NTH_VALUE",
+    // Array/JSON (PostgreSQL)
+    "ARRAY_AGG", "STRING_AGG", "JSON_AGG", "JSONB_AGG",
+    "JSON_BUILD_OBJECT", "JSONB_BUILD_OBJECT",
+    "JSON_EXTRACT_PATH", "JSONB_EXTRACT_PATH",
+    // MySQL JSON
+    "JSON_EXTRACT", "JSON_UNQUOTE", "JSON_SET", "JSON_INSERT", "JSON_REPLACE",
+    "JSON_REMOVE", "JSON_CONTAINS", "JSON_SEARCH", "JSON_KEYS", "JSON_LENGTH",
+    // Math functions
+    "ABS", "CEIL", "CEILING", "FLOOR", "ROUND", "TRUNCATE",
+    "MOD", "POW", "POWER", "SQRT", "EXP", "LOG", "LOG10", "LOG2",
+    "SIN", "COS", "TAN", "ASIN", "ACOS", "ATAN", "ATAN2",
+    "RAND", "RANDOM", "SIGN", "PI", "DEGREES", "RADIANS",
+    // Control flow
+    "IF", "IFNULL", "NULLIF", "CASE", "COALESCE", "GREATEST", "LEAST",
+    // MySQL specific
+    "GROUP_CONCAT", "FOUND_ROWS", "LAST_INSERT_ID", "UUID", "VERSION",
+    "DATABASE", "USER", "CURRENT_USER", "CONNECTION_ID",
 ];
 
 pub struct Editor {
@@ -226,13 +272,16 @@ impl Editor {
         let string_color = Color32::from_rgb(206, 145, 120);
         let number_color = Color32::from_rgb(181, 206, 168);
         let comment_color = Color32::from_rgb(106, 153, 85);
+        let backtick_color = Color32::from_rgb(156, 220, 254);
 
         let font_id = FontId::monospace(14.0);
         let mut i = 0;
         let chars: Vec<char> = text.chars().collect();
 
         while i < chars.len() {
-            if i + 1 < chars.len() && chars[i] == '-' && chars[i + 1] == '-' {
+            // Line comments (-- or #)
+            if (i + 1 < chars.len() && chars[i] == '-' && chars[i + 1] == '-') 
+                || chars[i] == '#' {
                 let start = i;
                 while i < chars.len() && chars[i] != '\n' {
                     i += 1;
@@ -242,10 +291,33 @@ impl Editor {
                 continue;
             }
 
+            // Block comments /* */
+            if i + 1 < chars.len() && chars[i] == '/' && chars[i + 1] == '*' {
+                let start = i;
+                i += 2;
+                while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                    i += 1;
+                }
+                if i + 1 < chars.len() {
+                    i += 2;
+                }
+                let s: String = chars[start..i].iter().collect();
+                job.append(&s, 0.0, TextFormat::simple(font_id.clone(), comment_color));
+                continue;
+            }
+
+            // Single-quoted strings
             if chars[i] == '\'' {
                 let start = i;
                 i += 1;
-                while i < chars.len() && chars[i] != '\'' {
+                while i < chars.len() {
+                    if chars[i] == '\'' {
+                        if i + 1 < chars.len() && chars[i + 1] == '\'' {
+                            i += 2; // escaped quote
+                            continue;
+                        }
+                        break;
+                    }
                     i += 1;
                 }
                 if i < chars.len() {
@@ -256,6 +328,37 @@ impl Editor {
                 continue;
             }
 
+            // Double-quoted identifiers (PostgreSQL)
+            if chars[i] == '"' {
+                let start = i;
+                i += 1;
+                while i < chars.len() && chars[i] != '"' {
+                    i += 1;
+                }
+                if i < chars.len() {
+                    i += 1;
+                }
+                let s: String = chars[start..i].iter().collect();
+                job.append(&s, 0.0, TextFormat::simple(font_id.clone(), backtick_color));
+                continue;
+            }
+
+            // Backtick-quoted identifiers (MySQL)
+            if chars[i] == '`' {
+                let start = i;
+                i += 1;
+                while i < chars.len() && chars[i] != '`' {
+                    i += 1;
+                }
+                if i < chars.len() {
+                    i += 1;
+                }
+                let s: String = chars[start..i].iter().collect();
+                job.append(&s, 0.0, TextFormat::simple(font_id.clone(), backtick_color));
+                continue;
+            }
+
+            // Numbers
             if chars[i].is_ascii_digit() {
                 let start = i;
                 while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
@@ -266,6 +369,7 @@ impl Editor {
                 continue;
             }
 
+            // Words (keywords, types, functions, identifiers)
             if chars[i].is_alphabetic() || chars[i] == '_' {
                 let start = i;
                 while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
@@ -288,6 +392,7 @@ impl Editor {
                 continue;
             }
 
+            // Other characters
             let s: String = chars[i..i + 1].iter().collect();
             job.append(&s, 0.0, TextFormat::simple(font_id.clone(), default_color));
             i += 1;

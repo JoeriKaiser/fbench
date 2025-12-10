@@ -3,8 +3,38 @@ mod query;
 
 pub use connection::*;
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum DatabaseType {
+    #[default]
+    PostgreSQL,
+    MySQL,
+}
+
+impl DatabaseType {
+    pub fn default_port(&self) -> u16 {
+        match self {
+            Self::PostgreSQL => 5432,
+            Self::MySQL => 3306,
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::PostgreSQL => "PostgreSQL",
+            Self::MySQL => "MySQL",
+        }
+    }
+
+    pub fn all() -> &'static [DatabaseType] {
+        &[DatabaseType::PostgreSQL, DatabaseType::MySQL]
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ConnectionConfig {
+    pub db_type: DatabaseType,
     pub host: String,
     pub port: u16,
     pub user: String,
@@ -15,10 +45,16 @@ pub struct ConnectionConfig {
 
 impl ConnectionConfig {
     pub fn connection_string(&self) -> String {
-        format!(
-            "postgres://{}:{}@{}:{}/{}",
-            self.user, self.password, self.host, self.port, self.database
-        )
+        match self.db_type {
+            DatabaseType::PostgreSQL => format!(
+                "postgres://{}:{}@{}:{}/{}",
+                self.user, self.password, self.host, self.port, self.database
+            ),
+            DatabaseType::MySQL => format!(
+                "mysql://{}:{}@{}:{}/{}",
+                self.user, self.password, self.host, self.port, self.database
+            ),
+        }
     }
 }
 
@@ -78,7 +114,7 @@ pub enum DbRequest {
 
 #[derive(Debug)]
 pub enum DbResponse {
-    Connected,
+    Connected(DatabaseType),
     TestResult(Result<(), String>),
     QueryResult(QueryResult),
     Schema(SchemaInfo),
