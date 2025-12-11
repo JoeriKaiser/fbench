@@ -2,7 +2,9 @@ use eframe::egui;
 use tokio::sync::mpsc;
 
 use crate::db::{spawn_db_worker, DatabaseType, DbRequest, DbResponse, SchemaInfo};
-use crate::ui::{ConnectionDialog, Editor, QueriesPanel, Results, StatusBar, SchemaPanel, TableDetailPanel};
+use crate::ui::{
+    ConnectionDialog, Editor, QueriesPanel, Results, SchemaPanel, StatusBar, TableDetailPanel,
+};
 
 #[derive(Clone, Copy, PartialEq, Default)]
 enum LeftPanelTab {
@@ -20,7 +22,7 @@ pub struct App {
     schema_panel: SchemaPanel,
     table_detail: TableDetailPanel,
     left_panel_tab: LeftPanelTab,
-    
+
     current_db_type: Option<DatabaseType>,
 
     db_tx: mpsc::UnboundedSender<DbRequest>,
@@ -49,7 +51,7 @@ impl App {
     fn poll_db_responses(&mut self) {
         while let Ok(response) = self.db_rx.try_recv() {
             self.connection_dialog.handle_db_response(&response);
-            
+
             match response {
                 DbResponse::Connected(db_type) => {
                     self.statusbar.connected = true;
@@ -103,7 +105,9 @@ impl App {
 
     fn view_table_structure(&mut self, table_name: &str) {
         self.table_detail.open(table_name);
-        let _ = self.db_tx.send(DbRequest::FetchTableDetails(table_name.to_string()));
+        let _ = self
+            .db_tx
+            .send(DbRequest::FetchTableDetails(table_name.to_string()));
     }
 }
 
@@ -115,9 +119,10 @@ impl eframe::App for App {
             self.statusbar.db_name = config.database.clone();
             let _ = self.db_tx.send(DbRequest::Connect(config));
         }
-        
-        self.queries_panel.show_save_popup(ctx, &self.editor.query);
-        
+
+        self.queries_panel
+            .show_save_popup(ctx, &self.editor.query);
+
         self.table_detail.show(ctx);
 
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
@@ -150,8 +155,9 @@ impl eframe::App for App {
                     }
                 });
                 ui.menu_button("View", |ui| {
-                    let selected_table = self.schema_panel.get_selected_table().map(|s| s.to_string());
-                    
+                    let selected_table =
+                        self.schema_panel.get_selected_table().map(|s| s.to_string());
+
                     if let Some(table_name) = selected_table {
                         if ui.button(format!("Structure: {}", table_name)).clicked() {
                             self.view_table_structure(&table_name);
@@ -179,10 +185,16 @@ impl eframe::App for App {
             .max_width(400.0)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.selectable_label(self.left_panel_tab == LeftPanelTab::Schema, "▤ Schema").clicked() {
+                    if ui
+                        .selectable_label(self.left_panel_tab == LeftPanelTab::Schema, "▤ Schema")
+                        .clicked()
+                    {
                         self.left_panel_tab = LeftPanelTab::Schema;
                     }
-                    if ui.selectable_label(self.left_panel_tab == LeftPanelTab::Queries, "📝 Queries").clicked() {
+                    if ui
+                        .selectable_label(self.left_panel_tab == LeftPanelTab::Queries, "📝 Queries")
+                        .clicked()
+                    {
                         self.left_panel_tab = LeftPanelTab::Queries;
                     }
                 });
@@ -191,7 +203,7 @@ impl eframe::App for App {
                 match self.left_panel_tab {
                     LeftPanelTab::Schema => {
                         let action = self.schema_panel.show(ui);
-                        
+
                         if let Some(table_name) = action.select_table_data {
                             self.select_table_data(&table_name);
                         }
@@ -216,11 +228,13 @@ impl eframe::App for App {
                 egui::Layout::top_down(egui::Align::LEFT),
                 |ui| {
                     let action = self.editor.show(ui);
-                    
-                    if action.execute && self.statusbar.connected {
-                        self.execute_query(&self.editor.query.clone());
+
+                    if let Some(sql) = action.execute_sql {
+                        if self.statusbar.connected {
+                            self.execute_query(&sql);
+                        }
                     }
-                    
+
                     if action.save {
                         self.queries_panel.open_save_dialog();
                     }
