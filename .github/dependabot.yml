@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "rust"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      egui:
+        patterns:
+          - "eframe"
+          - "egui*"
+      tokio:
+        patterns:
+          - "tokio*"
+      sqlx:
+        patterns:
+          - "sqlx*"
+      serde:
+        patterns:
+          - "serde*"
