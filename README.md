@@ -1,5 +1,7 @@
 # FBench
 
+![fbench logo](./assets/logo_black.svg)
+
 A fast, lightweight database explorer built with Rust and egui.
 
 ## Features
@@ -17,15 +19,24 @@ A fast, lightweight database explorer built with Rust and egui.
 cargo run --release
 ```
 
+## Install
+
+```bash
+make && sudo make install
+```
+
+Installs to `/usr/local/bin` by default. Override with `PREFIX=/custom/path`.
+
 ## Shortcuts
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+Enter` | Execute query |
+| `Ctrl+Enter` | Execute all |
+| `Ctrl+Shift+Enter` | Execute statement at cursor |
 | `Ctrl+S` | Save query |
-| `Tab` | Accept autocomplete |
-
-## Requirements
-
-- Rust 1.70+
-- PostgreSQL and/or MySQL server
+| `Ctrl+/` | Toggle comment |
+| `Ctrl+]` | Indent |
+| `Ctrl+[` | Outdent |
+| `↑ / ↓` | Navigate autocomplete |
+| `Tab / Enter` | Accept autocomplete |
+| `Esc` | Dismiss autocomplete |
