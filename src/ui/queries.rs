@@ -20,7 +20,6 @@ impl QueriesPanel {
     pub fn new() -> Self {
         let store = QueryStore::new();
         let saved_queries = store.load_queries();
-        
         Self {
             store,
             saved_queries,
@@ -44,10 +43,7 @@ impl QueriesPanel {
             return;
         }
 
-        let query = SavedQuery {
-            name: name.to_string(),
-            sql: sql.to_string(),
-        };
+        let query = SavedQuery { name: name.to_string(), sql: sql.to_string() };
 
         if let Some(idx) = self.saved_queries.iter().position(|q| q.name == query.name) {
             self.saved_queries[idx] = query;
@@ -55,11 +51,12 @@ impl QueriesPanel {
             self.saved_queries.push(query);
         }
 
-        if let Err(e) = self.store.save_queries(&self.saved_queries) {
-            self.status_message = Some((format!("Failed: {}", e), true));
-        } else {
-            self.show_save_dialog = false;
-            self.save_name.clear();
+        match self.store.save_queries(&self.saved_queries) {
+            Ok(()) => {
+                self.show_save_dialog = false;
+                self.save_name.clear();
+            }
+            Err(e) => self.status_message = Some((format!("Failed: {}", e), true)),
         }
     }
 
@@ -70,9 +67,7 @@ impl QueriesPanel {
     }
 
     pub fn show_save_popup(&mut self, ctx: &egui::Context, current_sql: &str) {
-        if !self.show_save_dialog {
-            return;
-        }
+        if !self.show_save_dialog { return; }
 
         egui::Window::new("Save Query")
             .collapsible(false)
@@ -102,9 +97,7 @@ impl QueriesPanel {
 
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
-                        self.save_query(current_sql);
-                    }
+                    if ui.button("Save").clicked() { self.save_query(current_sql); }
                     if ui.button("Cancel").clicked() {
                         self.show_save_dialog = false;
                         self.status_message = None;
@@ -121,35 +114,34 @@ impl QueriesPanel {
 
         if self.saved_queries.is_empty() {
             ui.colored_label(egui::Color32::GRAY, "No saved queries");
-        } else {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                let mut to_delete = None;
-                
-                for (idx, query) in self.saved_queries.iter().enumerate() {
-                    let selected = self.selected_index == Some(idx);
-                    
-                    ui.horizontal(|ui| {
-                        let response = ui.selectable_label(selected, &query.name);
-                        
-                        if response.clicked() {
-                            self.selected_index = Some(idx);
-                            result = Some(query.sql.clone());
-                        }
-                        
-                        response.context_menu(|ui| {
-                            if ui.button("🗑 Delete").clicked() {
-                                to_delete = Some(idx);
-                                ui.close_menu();
-                            }
-                        });
-                    });
-                }
-
-                if let Some(idx) = to_delete {
-                    self.delete_query(idx);
-                }
-            });
+            return None;
         }
+
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            let mut to_delete = None;
+            
+            for (idx, query) in self.saved_queries.iter().enumerate() {
+                let selected = self.selected_index == Some(idx);
+                
+                ui.horizontal(|ui| {
+                    let response = ui.selectable_label(selected, &query.name);
+                    
+                    if response.clicked() {
+                        self.selected_index = Some(idx);
+                        result = Some(query.sql.clone());
+                    }
+                    
+                    response.context_menu(|ui| {
+                        if ui.button("🗑 Delete").clicked() {
+                            to_delete = Some(idx);
+                            ui.close_menu();
+                        }
+                    });
+                });
+            }
+
+            if let Some(idx) = to_delete { self.delete_query(idx); }
+        });
 
         result
     }

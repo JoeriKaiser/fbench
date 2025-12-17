@@ -9,22 +9,12 @@ pub enum DetailTab {
     Constraints,
 }
 
+#[derive(Default)]
 pub struct TableDetailPanel {
     pub table: Option<TableInfo>,
     pub show: bool,
     current_tab: DetailTab,
     loading: bool,
-}
-
-impl Default for TableDetailPanel {
-    fn default() -> Self {
-        Self {
-            table: None,
-            show: false,
-            current_tab: DetailTab::Columns,
-            loading: false,
-        }
-    }
 }
 
 impl TableDetailPanel {
@@ -61,9 +51,7 @@ impl TableDetailPanel {
             .collapsible(false)
             .show(ctx, |ui| {
                 if self.loading {
-                    ui.centered_and_justified(|ui| {
-                        ui.spinner();
-                    });
+                    ui.centered_and_justified(|ui| ui.spinner());
                     return;
                 }
 
@@ -73,17 +61,14 @@ impl TableDetailPanel {
                 };
 
                 ui.horizontal(|ui| {
-                    if ui.selectable_label(self.current_tab == DetailTab::Columns, 
-                        format!("▸ Columns ({})", table.columns.len())).clicked() {
-                        self.current_tab = DetailTab::Columns;
-                    }
-                    if ui.selectable_label(self.current_tab == DetailTab::Indexes, 
-                        format!("📑 Indexes ({})", table.indexes.len())).clicked() {
-                        self.current_tab = DetailTab::Indexes;
-                    }
-                    if ui.selectable_label(self.current_tab == DetailTab::Constraints, 
-                        format!("🔗 Constraints ({})", table.constraints.len())).clicked() {
-                        self.current_tab = DetailTab::Constraints;
+                    for (tab, label) in [
+                        (DetailTab::Columns, format!("▸ Columns ({})", table.columns.len())),
+                        (DetailTab::Indexes, format!("🔑 Indexes ({})", table.indexes.len())),
+                        (DetailTab::Constraints, format!("🔗 Constraints ({})", table.constraints.len())),
+                    ] {
+                        if ui.selectable_label(self.current_tab == tab, label).clicked() {
+                            self.current_tab = tab;
+                        }
                     }
                 });
 
@@ -91,12 +76,10 @@ impl TableDetailPanel {
 
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        match self.current_tab {
-                            DetailTab::Columns => self.show_columns(ui, table),
-                            DetailTab::Indexes => self.show_indexes(ui, table),
-                            DetailTab::Constraints => self.show_constraints(ui, table),
-                        }
+                    .show(ui, |ui| match self.current_tab {
+                        DetailTab::Columns => self.show_columns(ui, table),
+                        DetailTab::Indexes => self.show_indexes(ui, table),
+                        DetailTab::Constraints => self.show_constraints(ui, table),
                     });
             });
 
@@ -114,11 +97,9 @@ impl TableDetailPanel {
             .striped(true)
             .spacing([16.0, 4.0])
             .show(ui, |ui| {
-                ui.label(RichText::new("Column").strong());
-                ui.label(RichText::new("Type").strong());
-                ui.label(RichText::new("Nullable").strong());
-                ui.label(RichText::new("Default").strong());
-                ui.label(RichText::new("Key").strong());
+                for h in ["Column", "Type", "Nullable", "Default", "Key"] {
+                    ui.label(RichText::new(h).strong());
+                }
                 ui.end_row();
 
                 for col in &table.columns {
@@ -128,22 +109,16 @@ impl TableDetailPanel {
                         RichText::new(&col.name)
                     };
                     ui.label(name_text);
-
                     ui.colored_label(Color32::from_rgb(100, 200, 150), &col.data_type);
-
-                    let nullable_text = if col.nullable { "YES" } else { "NO" };
-                    let nullable_color = if col.nullable { Color32::GRAY } else { Color32::from_rgb(150, 150, 200) };
-                    ui.colored_label(nullable_color, nullable_text);
-
-                    let default_text = col.default_value.as_deref().unwrap_or("-");
-                    ui.colored_label(Color32::GRAY, truncate(default_text, 30));
-
-                    if col.is_primary_key {
-                        ui.label("★ PK");
+                    
+                    let (text, color) = if col.nullable {
+                        ("YES", Color32::GRAY)
                     } else {
-                        ui.label("");
-                    }
-
+                        ("NO", Color32::from_rgb(150, 150, 200))
+                    };
+                    ui.colored_label(color, text);
+                    ui.colored_label(Color32::GRAY, truncate(col.default_value.as_deref().unwrap_or("-"), 30));
+                    ui.label(if col.is_primary_key { "★ PK" } else { "" });
                     ui.end_row();
                 }
             });
@@ -160,31 +135,28 @@ impl TableDetailPanel {
             .striped(true)
             .spacing([16.0, 4.0])
             .show(ui, |ui| {
-                ui.label(RichText::new("Name").strong());
-                ui.label(RichText::new("Columns").strong());
-                ui.label(RichText::new("Type").strong());
-                ui.label(RichText::new("Properties").strong());
+                for h in ["Name", "Columns", "Type", "Properties"] {
+                    ui.label(RichText::new(h).strong());
+                }
                 ui.end_row();
 
                 for idx in &table.indexes {
-                    let name_color = if idx.is_primary {
+                    let color = if idx.is_primary {
                         Color32::from_rgb(255, 200, 100)
                     } else if idx.is_unique {
                         Color32::from_rgb(150, 200, 255)
                     } else {
                         Color32::WHITE
                     };
-                    ui.colored_label(name_color, &idx.name);
-
+                    ui.colored_label(color, &idx.name);
                     ui.label(idx.columns.join(", "));
-
                     ui.colored_label(Color32::GRAY, &idx.index_type);
 
-                    let mut props = Vec::new();
-                    if idx.is_primary { props.push("PRIMARY"); }
-                    if idx.is_unique && !idx.is_primary { props.push("UNIQUE"); }
+                    let props: Vec<_> = [
+                        (idx.is_primary, "PRIMARY"),
+                        (idx.is_unique && !idx.is_primary, "UNIQUE"),
+                    ].iter().filter(|(c, _)| *c).map(|(_, s)| *s).collect();
                     ui.label(props.join(", "));
-
                     ui.end_row();
                 }
             });
@@ -201,35 +173,31 @@ impl TableDetailPanel {
             .striped(true)
             .spacing([16.0, 4.0])
             .show(ui, |ui| {
-                ui.label(RichText::new("Name").strong());
-                ui.label(RichText::new("Type").strong());
-                ui.label(RichText::new("Columns").strong());
-                ui.label(RichText::new("Details").strong());
+                for h in ["Name", "Type", "Columns", "Details"] {
+                    ui.label(RichText::new(h).strong());
+                }
                 ui.end_row();
 
                 for con in &table.constraints {
                     ui.label(&con.name);
 
-                    let (type_text, type_color) = match con.constraint_type.as_str() {
+                    let (text, color) = match con.constraint_type.as_str() {
                         "PRIMARY KEY" => ("★ PRIMARY KEY", Color32::from_rgb(255, 200, 100)),
                         "FOREIGN KEY" => ("🔗 FOREIGN KEY", Color32::from_rgb(150, 200, 255)),
                         "UNIQUE" => ("◈ UNIQUE", Color32::from_rgb(200, 150, 255)),
                         "CHECK" => ("✓ CHECK", Color32::from_rgb(150, 255, 150)),
-                        _ => (&con.constraint_type as &str, Color32::WHITE),
+                        _ => (con.constraint_type.as_str(), Color32::WHITE),
                     };
-                    ui.colored_label(type_color, type_text);
-
+                    ui.colored_label(color, text);
                     ui.label(con.columns.join(", "));
 
-                    let detail = if let (Some(ft), Some(fc)) = (&con.foreign_table, &con.foreign_columns) {
-                        format!("→ {}.{}", ft, fc.join(", "))
-                    } else if let Some(check) = &con.check_clause {
-                        truncate(check, 40).to_string()
-                    } else {
-                        "-".to_string()
+                    let detail = match (&con.foreign_table, &con.foreign_columns) {
+                        (Some(ft), Some(fc)) => format!("→ {}.{}", ft, fc.join(", ")),
+                        _ => con.check_clause.as_ref()
+                            .map(|c| truncate(c, 40).to_string())
+                            .unwrap_or_else(|| "-".to_string()),
                     };
                     ui.colored_label(Color32::GRAY, detail);
-
                     ui.end_row();
                 }
             });
@@ -237,13 +205,8 @@ impl TableDetailPanel {
 }
 
 fn truncate(s: &str, max_len: usize) -> &str {
-    if s.len() <= max_len {
-        s
-    } else {
-        let mut end = max_len;
-        while end > 0 && !s.is_char_boundary(end) {
-            end -= 1;
-        }
-        &s[..end]
-    }
+    if s.len() <= max_len { return s; }
+    let mut end = max_len;
+    while end > 0 && !s.is_char_boundary(end) { end -= 1; }
+    &s[..end]
 }

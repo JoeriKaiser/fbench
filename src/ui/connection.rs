@@ -23,9 +23,7 @@ pub struct ConnectionDialog {
 }
 
 impl Default for ConnectionDialog {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl ConnectionDialog {
@@ -58,43 +56,35 @@ impl ConnectionDialog {
                 dialog.load_selected();
             }
         }
-
         dialog
     }
 
     pub fn handle_db_response(&mut self, response: &DbResponse) {
         if let DbResponse::TestResult(result) = response {
             self.testing = false;
-            match result {
-                Ok(()) => {
-                    self.status_message = Some(("✔ Connection successful!".into(), false));
-                }
-                Err(e) => {
-                    self.status_message = Some((format!("✗ {}", e), true));
-                }
-            }
+            self.status_message = Some(match result {
+                Ok(()) => ("✓ Connection successful!".into(), false),
+                Err(e) => (format!("✗ {}", e), true),
+            });
         }
     }
 
     fn load_selected(&mut self) {
-        if let Some(idx) = self.selected_index {
-            if let Some(conn) = self.saved_connections.get(idx) {
-                self.connection_name = conn.name.clone();
-                self.db_type = conn.db_type;
-                self.host = conn.host.clone();
-                self.port = conn.port.to_string();
-                self.user = conn.user.clone();
-                self.database = conn.database.clone();
-                self.schema = conn.schema.clone();
-                self.save_password = conn.save_password;
-                
-                if conn.save_password {
-                    self.password = conn.password.clone().unwrap_or_default();
-                } else {
-                    self.password = self.store.get_password(&conn.name).unwrap_or_default();
-                }
-            }
-        }
+        let Some(conn) = self.selected_index.and_then(|i| self.saved_connections.get(i)) else { return };
+        
+        self.connection_name = conn.name.clone();
+        self.db_type = conn.db_type;
+        self.host = conn.host.clone();
+        self.port = conn.port.to_string();
+        self.user = conn.user.clone();
+        self.database = conn.database.clone();
+        self.schema = conn.schema.clone();
+        self.save_password = conn.save_password;
+        self.password = if conn.save_password {
+            conn.password.clone().unwrap_or_default()
+        } else {
+            self.store.get_password(&conn.name).unwrap_or_default()
+        };
     }
 
     fn clear_form(&mut self) {
@@ -111,25 +101,18 @@ impl ConnectionDialog {
     }
 
     fn on_db_type_changed(&mut self) {
-        let pg_port = DatabaseType::PostgreSQL.default_port().to_string();
-        let mysql_port = DatabaseType::MySQL.default_port().to_string();
-        
-        if self.port == pg_port || self.port == mysql_port {
-            self.port = self.db_type.default_port().to_string();
-        }
-        
-        match self.db_type {
-            DatabaseType::PostgreSQL => {
-                if self.user == "root" {
-                    self.user = "postgres".to_string();
-                }
-            }
-            DatabaseType::MySQL => {
-                if self.user == "postgres" {
-                    self.user = "root".to_string();
-                }
+        let ports = [DatabaseType::PostgreSQL.default_port(), DatabaseType::MySQL.default_port()];
+        if let Ok(p) = self.port.parse::<u16>() {
+            if ports.contains(&p) {
+                self.port = self.db_type.default_port().to_string();
             }
         }
+        
+        self.user = match (self.db_type, self.user.as_str()) {
+            (DatabaseType::PostgreSQL, "root") => "postgres".to_string(),
+            (DatabaseType::MySQL, "postgres") => "root".to_string(),
+            _ => return,
+        };
     }
 
     fn save_current(&mut self) {
@@ -153,11 +136,7 @@ impl ConnectionDialog {
             database: self.database.clone(),
             schema: self.schema.clone(),
             save_password: self.save_password,
-            password: if self.save_password {
-                Some(self.password.clone())
-            } else {
-                None
-            },
+            password: self.save_password.then(|| self.password.clone()),
         };
 
         if !self.save_password {
@@ -167,36 +146,32 @@ impl ConnectionDialog {
             }
         }
 
-        if let Some(idx) = self.saved_connections.iter().position(|c| c.name == conn.name) {
-            self.saved_connections[idx] = conn;
-        } else {
-            self.saved_connections.push(conn);
+        match self.saved_connections.iter().position(|c| c.name == conn.name) {
+            Some(idx) => self.saved_connections[idx] = conn,
+            None => self.saved_connections.push(conn),
         }
 
-        if let Err(e) = self.store.save_connections(&self.saved_connections) {
-            self.status_message = Some((format!("Failed to save: {}", e), true));
-        } else {
-            self.status_message = Some(("Connection saved".into(), false));
+        match self.store.save_connections(&self.saved_connections) {
+            Ok(()) => self.status_message = Some(("Connection saved".into(), false)),
+            Err(e) => self.status_message = Some((format!("Failed to save: {}", e), true)),
         }
     }
 
     fn delete_selected(&mut self) {
-        if let Some(idx) = self.selected_index {
-            let name = self.saved_connections[idx].name.clone();
-            let _ = self.store.delete_password(&name);
-            self.saved_connections.remove(idx);
-            let _ = self.store.save_connections(&self.saved_connections);
-            self.clear_form();
-            self.status_message = Some(("Connection deleted".into(), false));
-        }
+        let Some(idx) = self.selected_index else { return };
+        let name = self.saved_connections[idx].name.clone();
+        let _ = self.store.delete_password(&name);
+        self.saved_connections.remove(idx);
+        let _ = self.store.save_connections(&self.saved_connections);
+        self.clear_form();
+        self.status_message = Some(("Connection deleted".into(), false));
     }
 
     fn build_config(&self) -> Option<ConnectionConfig> {
-        let port = self.port.parse().ok()?;
         Some(ConnectionConfig {
             db_type: self.db_type,
             host: self.host.clone(),
-            port,
+            port: self.port.parse().ok()?,
             user: self.user.clone(),
             password: self.password.clone(),
             database: self.database.clone(),
@@ -205,11 +180,9 @@ impl ConnectionDialog {
     }
 
     pub fn show(&mut self, ctx: &egui::Context, db_tx: &mpsc::UnboundedSender<DbRequest>) -> Option<ConnectionConfig> {
+        if !self.show { return None; }
+        
         let mut result = None;
-
-        if !self.show {
-            return None;
-        }
 
         egui::Window::new("Connect to Database")
             .collapsible(false)
@@ -224,27 +197,26 @@ impl ConnectionDialog {
                         ui.label("Saved Connections");
                         ui.add_space(4.0);
                         
-                        egui::ScrollArea::vertical()
-                            .max_height(250.0)
-                            .show(ui, |ui| {
-                                let mut clicked_idx = None;
-                                for (idx, conn) in self.saved_connections.iter().enumerate() {
-                                    let selected = self.selected_index == Some(idx);
-                                    let icon = match conn.db_type {
-                                        DatabaseType::PostgreSQL => "🐘",
-                                        DatabaseType::MySQL => "🐬",
-                                    };
-                                    let label = format!("{} {}", icon, conn.name);
-                                    if ui.selectable_label(selected, label).clicked() {
-                                        clicked_idx = Some(idx);
-                                    }
+                        egui::ScrollArea::vertical().max_height(250.0).show(ui, |ui| {
+                            let mut clicked_idx = None;
+                            for (idx, conn) in self.saved_connections.iter().enumerate() {
+                                let icon = match conn.db_type {
+                                    DatabaseType::PostgreSQL => "🐘",
+                                    DatabaseType::MySQL => "🐬",
+                                };
+                                if ui.selectable_label(
+                                    self.selected_index == Some(idx),
+                                    format!("{} {}", icon, conn.name)
+                                ).clicked() {
+                                    clicked_idx = Some(idx);
                                 }
-                                if let Some(idx) = clicked_idx {
-                                    self.selected_index = Some(idx);
-                                    self.load_selected();
-                                    self.status_message = None;
-                                }
-                            });
+                            }
+                            if let Some(idx) = clicked_idx {
+                                self.selected_index = Some(idx);
+                                self.load_selected();
+                                self.status_message = None;
+                            }
+                        });
                         
                         ui.add_space(8.0);
                         if ui.button("New Connection").clicked() {
@@ -264,8 +236,7 @@ impl ConnectionDialog {
                             .show(ui, |ui| {
                                 ui.label("Name:");
                                 ui.add(egui::TextEdit::singleline(&mut self.connection_name)
-                                    .desired_width(200.0)
-                                    .hint_text("My Database"));
+                                    .desired_width(200.0).hint_text("My Database"));
                                 ui.end_row();
 
                                 ui.label("Database Type:");
@@ -279,37 +250,30 @@ impl ConnectionDialog {
                                                 DatabaseType::PostgreSQL => "🐘",
                                                 DatabaseType::MySQL => "🐬",
                                             };
-                                            let label = format!("{} {}", icon, db_type.display_name());
-                                            if ui.selectable_value(&mut self.db_type, *db_type, label).changed() {
+                                            if ui.selectable_value(&mut self.db_type, *db_type, 
+                                                format!("{} {}", icon, db_type.display_name())).changed() {
                                                 type_changed = true;
                                             }
                                         }
                                     });
                                 ui.end_row();
+                                if type_changed { self.on_db_type_changed(); }
 
-                                if type_changed {
-                                    self.on_db_type_changed();
+                                for (label, value, hint) in [
+                                    ("Host:", &mut self.host, None::<&str>),
+                                    ("Port:", &mut self.port, None),
+                                    ("User:", &mut self.user, None),
+                                ] {
+                                    ui.label(label);
+                                    let mut edit = egui::TextEdit::singleline(value).desired_width(200.0);
+                                    if let Some(h) = hint { edit = edit.hint_text(h); }
+                                    ui.add(edit);
+                                    ui.end_row();
                                 }
-
-                                ui.label("Host:");
-                                ui.add(egui::TextEdit::singleline(&mut self.host)
-                                    .desired_width(200.0));
-                                ui.end_row();
-
-                                ui.label("Port:");
-                                ui.add(egui::TextEdit::singleline(&mut self.port)
-                                    .desired_width(200.0));
-                                ui.end_row();
-
-                                ui.label("User:");
-                                ui.add(egui::TextEdit::singleline(&mut self.user)
-                                    .desired_width(200.0));
-                                ui.end_row();
 
                                 ui.label("Password:");
                                 ui.add(egui::TextEdit::singleline(&mut self.password)
-                                    .desired_width(200.0)
-                                    .password(true));
+                                    .desired_width(200.0).password(true));
                                 ui.end_row();
 
                                 ui.label("");
@@ -317,15 +281,13 @@ impl ConnectionDialog {
                                 ui.end_row();
 
                                 ui.label("Database:");
-                                ui.add(egui::TextEdit::singleline(&mut self.database)
-                                    .desired_width(200.0));
+                                ui.add(egui::TextEdit::singleline(&mut self.database).desired_width(200.0));
                                 ui.end_row();
 
                                 if self.db_type == DatabaseType::PostgreSQL {
                                     ui.label("Schema:");
                                     ui.add(egui::TextEdit::singleline(&mut self.schema)
-                                        .desired_width(200.0)
-                                        .hint_text("optional"));
+                                        .desired_width(200.0).hint_text("optional"));
                                     ui.end_row();
                                 }
                             });
@@ -343,13 +305,9 @@ impl ConnectionDialog {
                         }
 
                         ui.horizontal(|ui| {
-                            if ui.button("💾 Save").clicked() {
-                                self.save_current();
-                            }
-                            if self.selected_index.is_some() {
-                                if ui.button("🗑 Delete").clicked() {
-                                    self.delete_selected();
-                                }
+                            if ui.button("💾 Save").clicked() { self.save_current(); }
+                            if self.selected_index.is_some() && ui.button("🗑 Delete").clicked() {
+                                self.delete_selected();
                             }
                         });
 
@@ -358,13 +316,8 @@ impl ConnectionDialog {
                         ui.add_space(8.0);
 
                         ui.horizontal(|ui| {
-                            let test_btn = egui::Button::new(if self.testing { 
-                                "Testing..." 
-                            } else { 
-                                "Test Connection" 
-                            });
-                            
-                            if ui.add_enabled(!self.testing, test_btn).clicked() {
+                            let label = if self.testing { "Testing..." } else { "Test Connection" };
+                            if ui.add_enabled(!self.testing, egui::Button::new(label)).clicked() {
                                 if let Some(config) = self.build_config() {
                                     self.testing = true;
                                     self.status_message = Some(("Testing connection...".into(), false));
@@ -378,13 +331,10 @@ impl ConnectionDialog {
                         ui.add_space(8.0);
 
                         ui.horizontal(|ui| {
-                            let connect_btn = egui::Button::new("Connect")
-                                .min_size(egui::vec2(80.0, 28.0));
-                            if ui.add(connect_btn).clicked() {
+                            if ui.add(egui::Button::new("Connect").min_size(egui::vec2(80.0, 28.0))).clicked() {
                                 if let Some(config) = self.build_config() {
-                                    if !self.connection_name.trim().is_empty() {
-                                        let _ = self.store.set_last_used(self.connection_name.trim());
-                                    }
+                                    let name = self.connection_name.trim();
+                                    if !name.is_empty() { let _ = self.store.set_last_used(name); }
                                     result = Some(config);
                                     self.show = false;
                                     self.status_message = None;
@@ -392,10 +342,7 @@ impl ConnectionDialog {
                                     self.status_message = Some(("Invalid port".into(), true));
                                 }
                             }
-                            
-                            let cancel_btn = egui::Button::new("Cancel")
-                                .min_size(egui::vec2(80.0, 28.0));
-                            if ui.add(cancel_btn).clicked() {
+                            if ui.add(egui::Button::new("Cancel").min_size(egui::vec2(80.0, 28.0))).clicked() {
                                 self.show = false;
                                 self.status_message = None;
                             }
