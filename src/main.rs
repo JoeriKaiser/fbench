@@ -2,6 +2,7 @@ mod app;
 mod config;
 mod db;
 mod export;
+mod llm;
 mod ui;
 
 use eframe::egui;
