@@ -9,7 +9,7 @@ mod table_detail;
 
 pub use ai_prompt::AiPrompt;
 pub use connection::ConnectionDialog;
-pub use editor::Editor;
+pub use editor::{AiAction, Editor};
 pub use queries::QueriesPanel;
 pub use results::Results;
 pub use schema::SchemaPanel;

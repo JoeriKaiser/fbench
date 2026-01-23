@@ -3,8 +3,9 @@ use tokio::sync::mpsc;
 
 use crate::db::{spawn_db_worker, DatabaseType, DbRequest, DbResponse, SchemaInfo};
 use crate::llm::{spawn_llm_worker, LlmRequest, LlmResponse};
+use crate::llm::LlmConfig;
 use crate::ui::{
-    AiPrompt, ConnectionDialog, Editor, QueriesPanel, Results, SchemaPanel, StatusBar,
+    AiAction, AiPrompt, ConnectionDialog, Editor, QueriesPanel, Results, SchemaPanel, StatusBar,
     TableDetailPanel,
 };
 
@@ -79,8 +80,12 @@ impl App {
                     self.statusbar.row_count = Some(result.rows.len());
                     self.statusbar.exec_time_ms = Some(result.execution_time_ms);
                     self.results.set_result(result);
+                    self.editor.set_last_error(None);
                 }
-                DbResponse::Error(e) => self.results.set_error(e),
+                DbResponse::Error(e) => {
+                    self.results.set_error(e.clone());
+                    self.editor.set_last_error(Some(e));
+                }
                 DbResponse::Disconnected => {
                     self.statusbar.connected = false;
                     self.statusbar.db_type = None;
@@ -95,22 +100,23 @@ impl App {
         }
 
         while let Ok(response) = self.llm_rx.try_recv() {
-            match response {
+            match &response {
                 LlmResponse::Generated(sql) => {
                     self.ai_prompt.set_generating(false);
                     self.ai_prompt.take_prompt();
-                    self.editor.query = sql;
+                    self.editor.query = sql.clone();
                 }
                 LlmResponse::Explanation(_) |
                 LlmResponse::Optimization { .. } |
                 LlmResponse::ErrorFix { .. } => {
-                    // Will be handled by editor in future tasks
+                    self.editor.handle_llm_response(&response);
                 }
                 LlmResponse::QuerySuggestions(_) => {
                     // Will be handled by schema panel in future tasks
                 }
                 LlmResponse::Error(e) => {
-                    self.ai_prompt.set_error(e);
+                    self.ai_prompt.set_error(e.clone());
+                    self.editor.handle_llm_response(&response);
                 }
             }
         }
@@ -263,6 +269,24 @@ impl eframe::App for App {
                     }
                     if action.save {
                         self.queries_panel.open_save_dialog();
+                    }
+                    if let Some((ai_action, sql)) = action.ai_action {
+                        let config = LlmConfig::load();
+                        let request = match ai_action {
+                            AiAction::Explain => LlmRequest::Explain { sql, config },
+                            AiAction::Optimize => LlmRequest::Optimize {
+                                sql,
+                                schema: self.schema.clone(),
+                                config,
+                            },
+                            AiAction::FixError => LlmRequest::FixError {
+                                sql,
+                                error: self.results.error.clone().unwrap_or_default(),
+                                schema: self.schema.clone(),
+                                config,
+                            },
+                        };
+                        let _ = self.llm_tx.send(request);
                     }
                 },
             );

@@ -81,12 +81,31 @@ struct AutocompleteState {
     last_cursor_char: usize,
 }
 
+#[derive(Default)]
+struct AiPanelState {
+    visible: bool,
+    loading: bool,
+    title: String,
+    content: String,
+    suggested_sql: Option<String>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum AiAction {
+    Explain,
+    Optimize,
+    FixError,
+}
+
 pub struct Editor {
     pub query: String,
     schema: SchemaInfo,
     autocomplete: AutocompleteState,
     wrap: bool,
-    pending_cursor_move: Option<usize>, // byte position to move cursor to
+    pending_cursor_move: Option<usize>,
+    ai_panel: AiPanelState,
+    last_error: Option<String>,
+    current_selection: Option<(usize, usize)>,
 }
 
 impl Default for Editor {
@@ -97,6 +116,9 @@ impl Default for Editor {
             autocomplete: AutocompleteState::default(),
             wrap: false,
             pending_cursor_move: None,
+            ai_panel: AiPanelState::default(),
+            last_error: None,
+            current_selection: None,
         }
     }
 }
@@ -104,10 +126,163 @@ impl Default for Editor {
 pub struct EditorAction {
     pub execute_sql: Option<String>,
     pub save: bool,
+    pub ai_action: Option<(AiAction, String)>, // (action, sql_to_analyze)
 }
 
 impl Editor {
     pub fn set_schema(&mut self, schema: SchemaInfo) { self.schema = schema; }
+
+    pub fn set_last_error(&mut self, error: Option<String>) {
+        self.last_error = error;
+    }
+
+    pub fn handle_llm_response(&mut self, response: &crate::llm::LlmResponse) {
+        use crate::llm::LlmResponse;
+
+        self.ai_panel.loading = false;
+
+        match response {
+            LlmResponse::Explanation(text) => {
+                self.ai_panel.title = "Explanation".to_string();
+                self.ai_panel.content = text.clone();
+                self.ai_panel.suggested_sql = None;
+                self.ai_panel.visible = true;
+            }
+            LlmResponse::Optimization { explanation, sql } => {
+                self.ai_panel.title = "Optimization".to_string();
+                self.ai_panel.content = explanation.clone();
+                self.ai_panel.suggested_sql = sql.clone();
+                self.ai_panel.visible = true;
+            }
+            LlmResponse::ErrorFix { explanation, sql } => {
+                self.ai_panel.title = "Error Fix".to_string();
+                self.ai_panel.content = explanation.clone();
+                self.ai_panel.suggested_sql = sql.clone();
+                self.ai_panel.visible = true;
+            }
+            LlmResponse::Error(e) => {
+                self.ai_panel.title = "Error".to_string();
+                self.ai_panel.content = e.clone();
+                self.ai_panel.suggested_sql = None;
+                self.ai_panel.visible = true;
+                self.ai_panel.loading = false;
+            }
+            _ => {}
+        }
+    }
+
+    fn get_selected_text(&self) -> Option<String> {
+        let (start, end) = self.current_selection?;
+        if start == end { return None; }
+        let (s, e) = (start.min(end), start.max(end));
+        let start_b = Self::char_to_byte(&self.query, s);
+        let end_b = Self::char_to_byte(&self.query, e);
+        Some(self.query[start_b..end_b].to_string())
+    }
+
+    fn show_ai_panel(&mut self, ui: &mut egui::Ui) -> bool {
+        if !self.ai_panel.visible { return false; }
+
+        let mut applied = false;
+        let mut dismiss = false;
+
+        ui.add_space(4.0);
+        egui::Frame::group(ui.style())
+            .fill(ui.visuals().extreme_bg_color)
+            .inner_margin(8.0)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.strong(&self.ai_panel.title);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button("✕").clicked() {
+                            dismiss = true;
+                        }
+                    });
+                });
+
+                ui.add_space(4.0);
+
+                if self.ai_panel.loading {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Thinking...");
+                    });
+                } else {
+                    ui.label(&self.ai_panel.content);
+
+                    if let Some(sql) = &self.ai_panel.suggested_sql {
+                        ui.add_space(4.0);
+                        egui::Frame::group(ui.style())
+                            .fill(ui.visuals().code_bg_color)
+                            .show(ui, |ui| {
+                                ui.add(egui::Label::new(
+                                    egui::RichText::new(sql).monospace().size(12.0)
+                                ));
+                            });
+                    }
+
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Copy").clicked() {
+                            ui.ctx().copy_text(self.ai_panel.content.clone());
+                        }
+                        if self.ai_panel.suggested_sql.is_some() {
+                            if ui.button("Apply SQL").clicked() {
+                                applied = true;
+                            }
+                        }
+                        if ui.button("Dismiss").clicked() {
+                            dismiss = true;
+                        }
+                    });
+                }
+            });
+
+        if dismiss {
+            self.ai_panel.visible = false;
+        }
+
+        applied
+    }
+
+    fn show_context_menu(&mut self, response: &egui::Response) -> Option<(AiAction, String)> {
+        let mut result = None;
+
+        response.context_menu(|ui| {
+            let selected = self.get_selected_text();
+            let has_selection = selected.is_some();
+            let sql = selected.unwrap_or_else(|| self.query.clone());
+
+            ui.set_min_width(160.0);
+
+            if ui.add_enabled(
+                has_selection || !self.query.is_empty(),
+                egui::Button::new("✦ Explain")
+            ).clicked() {
+                result = Some((AiAction::Explain, sql.clone()));
+                ui.close_menu();
+            }
+
+            if ui.add_enabled(
+                has_selection || !self.query.is_empty(),
+                egui::Button::new("⚡ Optimize")
+            ).clicked() {
+                result = Some((AiAction::Optimize, sql.clone()));
+                ui.close_menu();
+            }
+
+            let has_error = self.last_error.is_some();
+            if ui.add_enabled(
+                has_error && (has_selection || !self.query.is_empty()),
+                egui::Button::new("🔧 Fix Error")
+            ).clicked() {
+                result = Some((AiAction::FixError, sql.clone()));
+                ui.close_menu();
+            }
+        });
+
+        result
+    }
 
     fn char_to_byte(s: &str, idx: usize) -> usize {
         if idx == 0 { 0 } else { s.char_indices().nth(idx).map(|(i, _)| i).unwrap_or(s.len()) }
@@ -521,7 +696,7 @@ impl Editor {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) -> EditorAction {
-        let mut action = EditorAction { execute_sql: None, save: false };
+        let mut action = EditorAction { execute_sql: None, save: false, ai_action: None };
         let (mut want_run_all, mut want_run_stmt, mut want_save, mut want_indent, mut want_outdent, mut want_comment) = (false, false, false, false, false, false);
 
         ui.horizontal(|ui| {
@@ -584,6 +759,28 @@ impl Editor {
             let (ln, col) = Self::cursor_pos(&self.query, b);
             (c, b, ln, col)
         }).unwrap_or((0, 0, 1, 1));
+
+        // Track selection for context menu
+        if let Some(cr) = &output.cursor_range {
+            let (a, b) = (cr.primary.ccursor.index, cr.secondary.ccursor.index);
+            self.current_selection = Some((a, b));
+        } else {
+            self.current_selection = None;
+        }
+
+        // Show context menu
+        if let Some((ai_action, sql)) = self.show_context_menu(&output.response) {
+            self.ai_panel.loading = true;
+            self.ai_panel.visible = true;
+            self.ai_panel.title = match ai_action {
+                AiAction::Explain => "Explaining...",
+                AiAction::Optimize => "Optimizing...",
+                AiAction::FixError => "Fixing...",
+            }.to_string();
+            self.ai_panel.content.clear();
+            self.ai_panel.suggested_sql = None;
+            action.ai_action = Some((ai_action, sql));
+        }
 
         ui.add_space(4.0);
         ui.horizontal(|ui| {
@@ -705,6 +902,14 @@ impl Editor {
         if want_indent && self.indent(cr) { ui.memory_mut(|m| m.request_focus(text_edit_id)); }
         if want_outdent && self.outdent(cr) { ui.memory_mut(|m| m.request_focus(text_edit_id)); }
         if cursor_b > self.query.len() { self.dismiss_autocomplete(); }
+
+        // Show AI panel if active
+        if self.show_ai_panel(ui) {
+            if let Some(sql) = self.ai_panel.suggested_sql.take() {
+                self.query = sql;
+                self.ai_panel.visible = false;
+            }
+        }
 
         action
     }
