@@ -1,5 +1,6 @@
 use eframe::egui::{self, Color32, RichText};
-use crate::db::{SchemaInfo};
+use crate::db::{SchemaInfo, TableInfo};
+use crate::llm::{LlmResponse, QuerySuggestion};
 
 #[derive(Clone, PartialEq, Default)]
 pub enum SchemaSelection {
@@ -17,12 +18,18 @@ pub struct SchemaPanel {
     views_expanded: bool,
     pub selection: SchemaSelection,
     search_query: String,
+    // AI suggestions state
+    suggestions: Vec<QuerySuggestion>,
+    suggestions_loading: bool,
+    suggestions_table: Option<String>,
 }
 
 #[derive(Default)]
 pub struct SchemaPanelAction {
     pub select_table_data: Option<String>,
     pub view_table_structure: Option<String>,
+    pub request_suggestions: Option<TableInfo>,
+    pub apply_suggestion: Option<String>,
 }
 
 impl SchemaPanel {
@@ -34,6 +41,20 @@ impl SchemaPanel {
         match &self.selection {
             SchemaSelection::Table(name) => Some(name),
             _ => None,
+        }
+    }
+
+    pub fn handle_llm_response(&mut self, response: &LlmResponse) {
+        match response {
+            LlmResponse::QuerySuggestions(suggestions) => {
+                self.suggestions = suggestions.clone();
+                self.suggestions_loading = false;
+            }
+            LlmResponse::Error(_) => {
+                self.suggestions_loading = false;
+                // Keep old suggestions on error
+            }
+            _ => {}
         }
     }
 
@@ -75,7 +96,64 @@ impl SchemaPanel {
                 self.views_expanded = views_header.fully_open();
             });
 
+        self.show_suggestions(ui, &mut action);
+
         action
+    }
+
+    fn show_suggestions(&mut self, ui: &mut egui::Ui, action: &mut SchemaPanelAction) {
+        let selected_table = match &self.selection {
+            SchemaSelection::Table(name) => Some(name.clone()),
+            _ => None,
+        };
+
+        // Request suggestions when table changes
+        if let Some(table_name) = &selected_table {
+            if self.suggestions_table.as_ref() != Some(table_name) {
+                self.suggestions_table = Some(table_name.clone());
+                self.suggestions_loading = true;
+                self.suggestions.clear();
+
+                if let Some(table) = self.schema.tables.iter().find(|t| &t.name == table_name) {
+                    action.request_suggestions = Some(table.clone());
+                }
+            }
+        }
+
+        if selected_table.is_none() {
+            return;
+        }
+
+        ui.add_space(8.0);
+        ui.separator();
+
+        ui.horizontal(|ui| {
+            ui.strong("Suggested Queries");
+            if self.suggestions_loading {
+                ui.spinner();
+            } else if ui.small_button("↻").on_hover_text("Refresh suggestions").clicked() {
+                if let Some(table_name) = &self.suggestions_table {
+                    if let Some(table) = self.schema.tables.iter().find(|t| &t.name == table_name) {
+                        self.suggestions_loading = true;
+                        action.request_suggestions = Some(table.clone());
+                    }
+                }
+            }
+        });
+
+        ui.add_space(4.0);
+
+        if self.suggestions.is_empty() && !self.suggestions_loading {
+            ui.colored_label(Color32::GRAY, "No suggestions available");
+        } else {
+            for suggestion in &self.suggestions {
+                let response = ui.selectable_label(false, format!("▸ {}", suggestion.label));
+                if response.clicked() {
+                    action.apply_suggestion = Some(suggestion.sql.clone());
+                }
+                response.on_hover_text(&suggestion.sql);
+            }
+        }
     }
 
     fn show_tables(&mut self, ui: &mut egui::Ui, action: &mut SchemaPanelAction) {

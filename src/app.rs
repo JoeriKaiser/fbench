@@ -112,7 +112,7 @@ impl App {
                     self.editor.handle_llm_response(&response);
                 }
                 LlmResponse::QuerySuggestions(_) => {
-                    // Will be handled by schema panel in future tasks
+                    self.schema_panel.handle_llm_response(&response);
                 }
                 LlmResponse::Error(e) => {
                     self.ai_prompt.set_error(e.clone());
@@ -236,6 +236,13 @@ impl eframe::App for App {
                         }
                         if let Some(t) = action.view_table_structure {
                             self.view_table_structure(&t);
+                        }
+                        if let Some(table) = action.request_suggestions {
+                            let config = LlmConfig::load();
+                            let _ = self.llm_tx.send(LlmRequest::SuggestQueries { table, config });
+                        }
+                        if let Some(sql) = action.apply_suggestion {
+                            self.editor.query = sql;
                         }
                     }
                     LeftTab::Queries => {
