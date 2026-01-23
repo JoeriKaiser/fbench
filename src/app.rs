@@ -101,6 +101,14 @@ impl App {
                     self.ai_prompt.take_prompt();
                     self.editor.query = sql;
                 }
+                LlmResponse::Explanation(_) |
+                LlmResponse::Optimization { .. } |
+                LlmResponse::ErrorFix { .. } => {
+                    // Will be handled by editor in future tasks
+                }
+                LlmResponse::QuerySuggestions(_) => {
+                    // Will be handled by schema panel in future tasks
+                }
                 LlmResponse::Error(e) => {
                     self.ai_prompt.set_error(e);
                 }
