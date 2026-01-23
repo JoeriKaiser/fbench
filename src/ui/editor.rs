@@ -86,6 +86,7 @@ pub struct Editor {
     schema: SchemaInfo,
     autocomplete: AutocompleteState,
     wrap: bool,
+    pending_cursor_move: Option<usize>, // byte position to move cursor to
 }
 
 impl Default for Editor {
@@ -95,6 +96,7 @@ impl Default for Editor {
             schema: SchemaInfo::default(),
             autocomplete: AutocompleteState::default(),
             wrap: false,
+            pending_cursor_move: None,
         }
     }
 }
@@ -127,45 +129,168 @@ impl Editor {
     fn get_word_bounds(&self, cursor_char: usize) -> (usize, usize, String) {
         let text = &self.query;
         let cursor_b = Self::char_to_byte(text, cursor_char);
-        let is_delim = |c: char| c.is_whitespace() || ",();.".contains(c);
+        let is_delim = |c: char| c.is_whitespace() || ",();".contains(c);
 
         let start = text[..cursor_b].rfind(is_delim).map(|i| i + 1).unwrap_or(0);
         let end = cursor_b + text[cursor_b..].find(is_delim).unwrap_or(text.len() - cursor_b);
         (start, end, text[start..cursor_b].to_string())
     }
 
+    fn is_word_char(c: char) -> bool {
+        c.is_alphanumeric() || c == '_'
+    }
+
+    fn find_word_boundary_right(text: &str, cursor_byte: usize) -> usize {
+        let chars: Vec<char> = text.chars().collect();
+        let byte_to_char: Vec<usize> = text.char_indices().map(|(b, _)| b).collect();
+
+        // Find which char index corresponds to cursor_byte
+        let mut char_idx = byte_to_char.iter().position(|&b| b >= cursor_byte).unwrap_or(chars.len());
+        if char_idx < chars.len() && byte_to_char.get(char_idx) == Some(&cursor_byte) {
+            // exact match
+        } else if char_idx > 0 {
+            char_idx = char_idx.saturating_sub(1);
+        }
+
+        // Skip current word characters
+        while char_idx < chars.len() && Self::is_word_char(chars[char_idx]) {
+            char_idx += 1;
+        }
+
+        // Skip whitespace/punctuation (but not newlines for now, stop at word)
+        while char_idx < chars.len() && !Self::is_word_char(chars[char_idx]) {
+            char_idx += 1;
+        }
+
+        // Return byte position
+        if char_idx >= chars.len() {
+            text.len()
+        } else {
+            Self::char_to_byte(text, char_idx)
+        }
+    }
+
+    fn find_word_boundary_left(text: &str, cursor_byte: usize) -> usize {
+        if cursor_byte == 0 { return 0; }
+
+        let chars: Vec<char> = text.chars().collect();
+
+        // Find which char index corresponds to cursor_byte
+        let mut char_idx = text[..cursor_byte].chars().count();
+        if char_idx == 0 { return 0; }
+
+        char_idx -= 1; // Move back one char to start
+
+        // Skip whitespace/punctuation going backwards
+        while char_idx > 0 && !Self::is_word_char(chars[char_idx]) {
+            char_idx -= 1;
+        }
+
+        // Skip word characters going backwards
+        while char_idx > 0 && Self::is_word_char(chars[char_idx - 1]) {
+            char_idx -= 1;
+        }
+
+        // If we're on a non-word char and there's nothing before, go to 0
+        if char_idx > 0 && !Self::is_word_char(chars[char_idx]) {
+            // We stopped on punctuation, keep going
+        }
+
+        Self::char_to_byte(text, char_idx)
+    }
+
+    fn handle_ctrl_navigation(&mut self, ui: &mut egui::Ui, _text_edit_id: egui::Id) {
+        let cursor_char = self.autocomplete.last_cursor_char;
+        let cursor_b = Self::char_to_byte(&self.query, cursor_char);
+
+        ui.input_mut(|input| {
+            if input.modifiers.ctrl && !input.modifiers.alt {
+                if input.key_pressed(egui::Key::ArrowRight) {
+                    let new_pos = Self::find_word_boundary_right(&self.query, cursor_b);
+                    self.pending_cursor_move = Some(new_pos);
+                    input.consume_key(egui::Modifiers::CTRL, egui::Key::ArrowRight);
+                }
+                if input.key_pressed(egui::Key::ArrowLeft) {
+                    let new_pos = Self::find_word_boundary_left(&self.query, cursor_b);
+                    self.pending_cursor_move = Some(new_pos);
+                    input.consume_key(egui::Modifiers::CTRL, egui::Key::ArrowLeft);
+                }
+            }
+        });
+    }
+
     fn get_suggestions(&self, word: &str) -> Vec<Suggestion> {
-        if word.is_empty() { return Vec::new(); }
+        if word.is_empty() {
+            return Vec::new();
+        }
 
         let (upper, lower) = (word.to_ascii_uppercase(), word.to_ascii_lowercase());
         let mut suggestions = Vec::new();
 
-        for &kw in SQL_KEYWORDS {
-            if kw.starts_with(&upper) {
-                suggestions.push(Suggestion { display: kw.to_string(), insert: kw.to_string(), kind: SuggestionKind::Keyword });
-            }
-        }
-        for &t in SQL_TYPES {
-            if t.starts_with(&upper) {
-                suggestions.push(Suggestion { display: t.to_string(), insert: t.to_string(), kind: SuggestionKind::Type });
-            }
-        }
-        for &f in SQL_FUNCTIONS {
-            if f.starts_with(&upper) {
-                suggestions.push(Suggestion { display: format!("{}()", f), insert: format!("{}()", f), kind: SuggestionKind::Function });
-            }
-        }
-        for table in &self.schema.tables {
-            if table.name.to_ascii_lowercase().starts_with(&lower) {
-                suggestions.push(Suggestion { display: table.name.clone(), insert: table.name.clone(), kind: SuggestionKind::Table });
-            }
-            for col in &table.columns {
-                if col.name.to_ascii_lowercase().starts_with(&lower) {
+        let categories = [
+            (SQL_KEYWORDS, SuggestionKind::Keyword),
+            (SQL_TYPES, SuggestionKind::Type),
+            (SQL_FUNCTIONS, SuggestionKind::Function),
+        ];
+
+        for (arr, kind) in categories {
+            for &item in arr {
+                if item.starts_with(&upper) {
+                    let insert = if matches!(kind, SuggestionKind::Function) {
+                        format!("{}()", item)
+                    } else {
+                        item.to_string()
+                    };
                     suggestions.push(Suggestion {
-                        display: format!("{} ({})", col.name, table.name),
-                        insert: col.name.clone(),
-                        kind: SuggestionKind::Column,
+                        display: if matches!(kind, SuggestionKind::Function) {
+                            format!("{}()", item)
+                        } else {
+                            item.to_string()
+                        },
+                        insert,
+                        kind,
                     });
+                }
+            }
+        }
+
+        // Handle table and column suggestions
+        if let Some((table_prefix, col_prefix)) = word.split_once('.') {
+            // Dot notation: suggest columns from specific table
+            let table_upper = table_prefix.to_ascii_uppercase();
+            let col_upper = col_prefix.to_ascii_uppercase();
+            for table in &self.schema.tables {
+                if table.name.to_ascii_uppercase() == table_upper {
+                    for col in &table.columns {
+                        if col.name.to_ascii_uppercase().starts_with(&col_upper) {
+                            suggestions.push(Suggestion {
+                                display: format!("{}", col.name),
+                                insert: col.name.clone(),
+                                kind: SuggestionKind::Column,
+                            });
+                        }
+                    }
+                    break; // Assuming unique table names
+                }
+            }
+        } else {
+            // No dot: suggest tables and columns as before
+            for table in &self.schema.tables {
+                if table.name.to_ascii_lowercase().starts_with(&lower) {
+                    suggestions.push(Suggestion {
+                        display: table.name.clone(),
+                        insert: table.name.clone(),
+                        kind: SuggestionKind::Table,
+                    });
+                }
+                for col in &table.columns {
+                    if col.name.to_ascii_lowercase().starts_with(&lower) {
+                        suggestions.push(Suggestion {
+                            display: format!("{} ({})", col.name, table.name),
+                            insert: col.name.clone(),
+                            kind: SuggestionKind::Column,
+                        });
+                    }
                 }
             }
         }
@@ -177,9 +302,14 @@ impl Editor {
                 (true, false) => std::cmp::Ordering::Less,
                 (false, true) => std::cmp::Ordering::Greater,
                 _ => {
-                    let order = |k: SuggestionKind| match k {
-                        SuggestionKind::Table => 0, SuggestionKind::Column => 1,
-                        SuggestionKind::Keyword => 2, SuggestionKind::Function => 3, SuggestionKind::Type => 4,
+                    let order = |k: SuggestionKind| {
+                        match k {
+                            SuggestionKind::Table => 0,
+                            SuggestionKind::Column => 1,
+                            SuggestionKind::Keyword => 2,
+                            SuggestionKind::Function => 3,
+                            SuggestionKind::Type => 4,
+                        }
                     };
                     order(a.kind).cmp(&order(b.kind)).then(a.display.cmp(&b.display))
                 }
@@ -408,6 +538,7 @@ impl Editor {
         ui.add_space(6.0);
 
         let text_edit_id = ui.make_persistent_id("sql_editor_textedit");
+        self.handle_ctrl_navigation(ui, text_edit_id);
         let wrap = self.wrap;
         let mut layouter = move |ui: &egui::Ui, text: &str, wrap_width: f32| {
             let mut job = Self::highlight_sql(text);
@@ -435,6 +566,17 @@ impl Editor {
 
         let output = output.unwrap();
         let response_rect = output.response.rect;
+
+        // Apply pending cursor move from Ctrl+Arrow navigation
+        if let Some(byte_pos) = self.pending_cursor_move.take() {
+            let char_pos = self.query[..byte_pos.min(self.query.len())].chars().count();
+            if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), text_edit_id) {
+                let ccursor = egui::text::CCursor::new(char_pos);
+                state.cursor.set_char_range(Some(egui::text::CCursorRange::one(ccursor)));
+                state.store(ui.ctx(), text_edit_id);
+                ui.ctx().request_repaint();
+            }
+        }
 
         let (cursor_char, cursor_b, ln, col) = output.cursor_range.as_ref().map(|cr| {
             let c = cr.primary.ccursor.index;
