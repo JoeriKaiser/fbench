@@ -615,15 +615,36 @@ impl Editor {
 
         if self.autocomplete.active && !self.autocomplete.suggestions.is_empty() {
             let (mut dismiss, mut apply) = (false, false);
-            ui.input(|i| {
-                if i.key_pressed(egui::Key::Escape) { dismiss = true; }
-                if i.key_pressed(egui::Key::ArrowDown) { self.autocomplete.selected = (self.autocomplete.selected + 1).min(self.autocomplete.suggestions.len() - 1); }
-                if i.key_pressed(egui::Key::ArrowUp) { self.autocomplete.selected = self.autocomplete.selected.saturating_sub(1); }
-                if i.key_pressed(egui::Key::Tab) || (i.key_pressed(egui::Key::Enter) && !i.modifiers.ctrl && !i.modifiers.shift) { apply = true; }
+
+            ui.input_mut(|input| {
+                if input.key_pressed(egui::Key::Escape) {
+                    dismiss = true;
+                    input.consume_key(egui::Modifiers::NONE, egui::Key::Escape);
+                }
+                if input.key_pressed(egui::Key::ArrowDown) {
+                    self.autocomplete.selected = (self.autocomplete.selected + 1)
+                        .min(self.autocomplete.suggestions.len() - 1);
+                    input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown);
+                }
+                if input.key_pressed(egui::Key::ArrowUp) {
+                    self.autocomplete.selected = self.autocomplete.selected.saturating_sub(1);
+                    input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp);
+                }
+                // Consume Tab to prevent focus change
+                if input.key_pressed(egui::Key::Tab) {
+                    apply = true;
+                    input.consume_key(egui::Modifiers::NONE, egui::Key::Tab);
+                }
+                // Enter without modifiers accepts suggestion
+                if input.key_pressed(egui::Key::Enter) && !input.modifiers.ctrl && !input.modifiers.shift {
+                    apply = true;
+                    input.consume_key(egui::Modifiers::NONE, egui::Key::Enter);
+                }
             });
 
-            if dismiss { self.dismiss_autocomplete(); }
-            else if apply {
+            if dismiss {
+                self.dismiss_autocomplete();
+            } else if apply {
                 if let Some(s) = self.autocomplete.suggestions.get(self.autocomplete.selected).cloned() {
                     self.apply_suggestion(&s);
                     ui.memory_mut(|m| m.request_focus(text_edit_id));
