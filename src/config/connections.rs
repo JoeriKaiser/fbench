@@ -1,9 +1,9 @@
+use crate::db::DatabaseType;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use crate::db::DatabaseType;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SavedConnection {
     pub name: String,
     #[serde(default)]
@@ -36,9 +36,9 @@ impl ConnectionStore {
         let config_dir = directories::ProjectDirs::from("com", "fbench", "fbench")
             .map(|d| d.config_dir().to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
-        
+
         fs::create_dir_all(&config_dir).ok();
-        
+
         Self {
             config_path: config_dir.join("connections.json"),
         }
@@ -82,14 +82,12 @@ impl ConnectionStore {
     }
 
     pub fn set_password(&self, connection_name: &str, password: &str) -> Result<(), String> {
-        let entry = keyring::Entry::new("fbench", connection_name)
-            .map_err(|e| e.to_string())?;
+        let entry = keyring::Entry::new("fbench", connection_name).map_err(|e| e.to_string())?;
         entry.set_password(password).map_err(|e| e.to_string())
     }
 
     pub fn delete_password(&self, connection_name: &str) -> Result<(), String> {
-        let entry = keyring::Entry::new("fbench", connection_name)
-            .map_err(|e| e.to_string())?;
+        let entry = keyring::Entry::new("fbench", connection_name).map_err(|e| e.to_string())?;
         entry.delete_credential().map_err(|e| e.to_string())
     }
 }

@@ -1,25 +1,27 @@
+#![allow(non_snake_case)]
+
 mod app;
+mod components;
 mod config;
 mod db;
 mod export;
+mod hooks;
 mod llm;
-mod ui;
+mod services;
+mod state;
 
-use eframe::egui;
+use app::App;
+use dioxus::desktop::tao::window::Theme;
+use dioxus::desktop::{Config, WindowBuilder};
 
-fn main() -> eframe::Result<()> {
-    tracing_subscriber::fmt::init();
-
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1200.0, 800.0])
-            .with_min_inner_size([800.0, 600.0]),
-        ..Default::default()
-    };
-
-    eframe::run_native(
-        "FBench",
-        options,
-        Box::new(|cc| Ok(Box::new(app::App::new(cc)))),
-    )
+fn main() {
+    dioxus::LaunchBuilder::desktop()
+        .with_cfg(
+            Config::new().with_window(
+                WindowBuilder::new()
+                    .with_title("FBench")
+                    .with_theme(Some(Theme::Dark)),
+            ),
+        )
+        .launch(App);
 }

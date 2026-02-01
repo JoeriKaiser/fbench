@@ -1,16 +1,18 @@
 use sqlx::{
-    postgres::{PgPool, PgPoolOptions, PgRow},
     mysql::{MySqlPool, MySqlRow},
+    postgres::{PgPool, PgPoolOptions, PgRow},
     Column, Row, ValueRef,
 };
 use tokio::sync::mpsc;
+use tokio::time::{interval, Duration};
 
 use super::{
-    ColumnInfo, ConnectionConfig, ConstraintInfo, DatabaseType, DbRequest, DbResponse,
-    IndexInfo, QueryResult, SchemaInfo, TableInfo,
+    ColumnInfo, ConnectionConfig, ConstraintInfo, DatabaseType, DbRequest, DbResponse, IndexInfo,
+    QueryResult, SchemaInfo, TableInfo,
 };
 
 const MAX_VALUE_LEN: usize = 10_000;
+const HEALTH_CHECK_INTERVAL_SECS: u64 = 5;
 
 enum DbPool {
     Postgres(PgPool),
@@ -20,6 +22,7 @@ enum DbPool {
 pub struct DbWorker {
     pool: Option<DbPool>,
     db_type: Option<DatabaseType>,
+    schema: Option<String>,
     request_rx: mpsc::UnboundedReceiver<DbRequest>,
     response_tx: mpsc::UnboundedSender<DbResponse>,
 }
@@ -32,36 +35,91 @@ impl DbWorker {
         Self {
             pool: None,
             db_type: None,
+            schema: None,
             request_rx,
             response_tx,
         }
     }
 
     pub async fn run(mut self) {
-        while let Some(request) = self.request_rx.recv().await {
-            let response = match request {
-                DbRequest::Connect(config) => self.connect(config).await,
-                DbRequest::TestConnection(config) => self.test_connection(config).await,
-                DbRequest::Execute(sql) => self.execute(&sql).await,
-                DbRequest::ListTables => self.list_tables().await,
-                DbRequest::FetchSchema => self.fetch_schema().await,
-                DbRequest::FetchTableDetails(table) => self.fetch_table_details(&table).await,
-                DbRequest::Disconnect => self.disconnect().await,
-            };
-            let _ = self.response_tx.send(response);
+        let mut health_check_interval = interval(Duration::from_secs(HEALTH_CHECK_INTERVAL_SECS));
+        let mut connection_lost_notified = false;
+
+        loop {
+            tokio::select! {
+                Some(request) = self.request_rx.recv() => {
+                    let response = match request {
+                        DbRequest::Connect(config) => {
+                            connection_lost_notified = false;
+                            self.connect(config).await
+                        }
+                        DbRequest::TestConnection(config) => self.test_connection(config).await,
+                        DbRequest::Execute(sql) => self.execute(&sql).await,
+                        DbRequest::ListTables => self.list_tables().await,
+                        DbRequest::FetchSchema => self.fetch_schema().await,
+                        DbRequest::FetchTableDetails(table) => self.fetch_table_details(&table).await,
+                        DbRequest::Disconnect => {
+                            connection_lost_notified = false;
+                            self.disconnect().await
+                        }
+                    };
+
+                    // Reset connection_lost_notified on successful operations
+                    if matches!(response, DbResponse::QueryResult(_) | DbResponse::Schema(_) | DbResponse::TableDetails(_)) {
+                        connection_lost_notified = false;
+                    }
+
+                    let _ = self.response_tx.send(response);
+                }
+                _ = health_check_interval.tick() => {
+                    // Only check health if we're connected
+                    if self.pool.is_some() && !connection_lost_notified {
+                        if let Err(e) = self.health_check().await {
+                            tracing::warn!("Health check failed: {}", e);
+                            connection_lost_notified = true;
+                            let _ = self.response_tx.send(DbResponse::ConnectionLost);
+                        }
+                    }
+                }
+                else => break,
+            }
+        }
+    }
+
+    async fn health_check(&self) -> Result<(), String> {
+        match (&self.pool, self.db_type) {
+            (Some(DbPool::Postgres(pool)), Some(DatabaseType::PostgreSQL)) => {
+                sqlx::query("SELECT 1")
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok(())
+            }
+            (Some(DbPool::MySQL(pool)), Some(DatabaseType::MySQL)) => {
+                sqlx::query("SELECT 1")
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok(())
+            }
+            _ => Ok(()), // Not connected, nothing to check
         }
     }
 
     async fn test_connection(&self, config: ConnectionConfig) -> DbResponse {
         let result = match config.db_type {
             DatabaseType::PostgreSQL => {
-                PgPool::connect(&config.connection_string()).await.map(|p| { let _ = p; })
+                PgPool::connect(&config.connection_string()).await.map(|p| {
+                    let _ = p;
+                })
             }
-            DatabaseType::MySQL => {
-                MySqlPool::connect(&config.connection_string()).await.map(|p| { let _ = p; })
-            }
+            DatabaseType::MySQL => MySqlPool::connect(&config.connection_string())
+                .await
+                .map(|p| {
+                    let _ = p;
+                }),
         };
-        
+
         match result {
             Ok(_) => DbResponse::TestResult(Ok(())),
             Err(e) => DbResponse::TestResult(Err(e.to_string())),
@@ -91,15 +149,20 @@ impl DbWorker {
                 };
                 pool_result.map(DbPool::Postgres)
             }
-            DatabaseType::MySQL => {
-                MySqlPool::connect(&config.connection_string()).await.map(DbPool::MySQL)
-            }
+            DatabaseType::MySQL => MySqlPool::connect(&config.connection_string())
+                .await
+                .map(DbPool::MySQL),
         };
 
         match result {
             Ok(pool) => {
                 self.pool = Some(pool);
                 self.db_type = Some(db_type);
+                self.schema = if schema.is_empty() {
+                    None
+                } else {
+                    Some(schema)
+                };
                 DbResponse::Connected(db_type)
             }
             Err(e) => DbResponse::Error(e.to_string()),
@@ -119,7 +182,14 @@ impl DbWorker {
     }
 
     async fn fetch_schema_postgres(&self, pool: &PgPool) -> DbResponse {
-        let tables_sql = r#"
+        // Build schema filter condition
+        let schema_filter = match &self.schema {
+            Some(schema) => format!("AND t.table_schema = '{}'", schema),
+            None => "AND t.table_schema NOT IN ('pg_catalog', 'information_schema')".to_string(),
+        };
+
+        let tables_sql = format!(
+            r#"
             SELECT 
                 t.table_name::TEXT,
                 COALESCE(s.n_live_tup, 0)::BIGINT as row_estimate
@@ -127,18 +197,34 @@ impl DbWorker {
             LEFT JOIN pg_stat_user_tables s 
                 ON t.table_name = s.relname AND t.table_schema = s.schemaname
             WHERE t.table_type = 'BASE TABLE' 
-              AND t.table_schema NOT IN ('pg_catalog', 'information_schema')
+              {}
             ORDER BY t.table_schema, t.table_name
-        "#;
+        "#,
+            schema_filter
+        );
 
-        let views_sql = r#"
+        let views_schema_filter = match &self.schema {
+            Some(schema) => format!("WHERE table_schema = '{}'", schema),
+            None => "WHERE table_schema NOT IN ('pg_catalog', 'information_schema')".to_string(),
+        };
+
+        let views_sql = format!(
+            r#"
             SELECT table_name::TEXT 
             FROM information_schema.views 
-            WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+            {}
             ORDER BY table_name
-        "#;
+        "#,
+            views_schema_filter
+        );
 
-        let columns_sql = r#"
+        let columns_schema_filter = match &self.schema {
+            Some(schema) => format!("WHERE c.table_schema = '{}'", schema),
+            None => "WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema')".to_string(),
+        };
+
+        let columns_sql = format!(
+            r#"
             SELECT 
                 c.table_name::TEXT,
                 c.column_name::TEXT,
@@ -155,22 +241,24 @@ impl DbWorker {
                     AND tc.table_schema = kcu.table_schema
                 WHERE tc.constraint_type = 'PRIMARY KEY'
             ) pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name
-            WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema')
+            {}
             ORDER BY c.table_name, c.ordinal_position
-        "#;
+        "#,
+            columns_schema_filter
+        );
 
-        let tables: Vec<(String, i64)> = match sqlx::query_as(tables_sql).fetch_all(pool).await {
+        let tables: Vec<(String, i64)> = match sqlx::query_as(&tables_sql).fetch_all(pool).await {
             Ok(t) => t,
             Err(e) => return DbResponse::Error(e.to_string()),
         };
 
-        let views: Vec<String> = match sqlx::query_scalar(views_sql).fetch_all(pool).await {
+        let views: Vec<String> = match sqlx::query_scalar(&views_sql).fetch_all(pool).await {
             Ok(v) => v,
             Err(e) => return DbResponse::Error(e.to_string()),
         };
 
         let columns: Vec<(String, String, String, bool, Option<String>, bool)> =
-            match sqlx::query_as(columns_sql).fetch_all(pool).await {
+            match sqlx::query_as(&columns_sql).fetch_all(pool).await {
                 Ok(c) => c,
                 Err(e) => return DbResponse::Error(e.to_string()),
             };
@@ -265,7 +353,11 @@ impl DbWorker {
         };
 
         let columns: Vec<(String, String, String, bool, Option<String>, bool)> =
-            match sqlx::query_as(columns_sql).bind(&db_name).fetch_all(pool).await {
+            match sqlx::query_as(columns_sql)
+                .bind(&db_name)
+                .fetch_all(pool)
+                .await
+            {
                 Ok(c) => c,
                 Err(e) => return DbResponse::Error(e.to_string()),
             };
@@ -387,13 +479,15 @@ impl DbWorker {
             {
                 Ok(rows) => rows
                     .into_iter()
-                    .map(|(name, data_type, nullable, default_value, is_primary_key)| ColumnInfo {
-                        name,
-                        data_type,
-                        nullable,
-                        default_value,
-                        is_primary_key,
-                    })
+                    .map(
+                        |(name, data_type, nullable, default_value, is_primary_key)| ColumnInfo {
+                            name,
+                            data_type,
+                            nullable,
+                            default_value,
+                            is_primary_key,
+                        },
+                    )
                     .collect(),
                 Err(e) => return DbResponse::Error(e.to_string()),
             };
@@ -406,20 +500,29 @@ impl DbWorker {
             {
                 Ok(rows) => rows
                     .into_iter()
-                    .map(|(name, columns, is_unique, is_primary, index_type)| IndexInfo {
-                        name,
-                        columns,
-                        is_unique,
-                        is_primary,
-                        index_type,
-                    })
+                    .map(
+                        |(name, columns, is_unique, is_primary, index_type)| IndexInfo {
+                            name,
+                            columns,
+                            is_unique,
+                            is_primary,
+                            index_type,
+                        },
+                    )
                     .collect(),
                 Err(e) => return DbResponse::Error(e.to_string()),
             };
 
         let constraints: Vec<ConstraintInfo> = match sqlx::query_as::<
             _,
-            (String, String, Vec<String>, Option<String>, Vec<String>, Option<String>),
+            (
+                String,
+                String,
+                Vec<String>,
+                Option<String>,
+                Vec<String>,
+                Option<String>,
+            ),
         >(constraints_sql)
         .bind(table_name)
         .fetch_all(pool)
@@ -428,13 +531,20 @@ impl DbWorker {
             Ok(rows) => rows
                 .into_iter()
                 .map(
-                    |(name, constraint_type, columns, foreign_table, foreign_columns, check_clause)| {
+                    |(
+                        name,
+                        constraint_type,
+                        columns,
+                        foreign_table,
+                        foreign_columns,
+                        check_clause,
+                    )| {
                         let foreign_columns = if foreign_columns.is_empty() {
                             None
                         } else {
                             Some(foreign_columns)
                         };
-                        
+
                         ConstraintInfo {
                             name,
                             constraint_type,
@@ -524,13 +634,15 @@ impl DbWorker {
             {
                 Ok(rows) => rows
                     .into_iter()
-                    .map(|(name, data_type, nullable, default_value, is_primary_key)| ColumnInfo {
-                        name,
-                        data_type,
-                        nullable,
-                        default_value,
-                        is_primary_key,
-                    })
+                    .map(
+                        |(name, data_type, nullable, default_value, is_primary_key)| ColumnInfo {
+                            name,
+                            data_type,
+                            nullable,
+                            default_value,
+                            is_primary_key,
+                        },
+                    )
                     .collect(),
                 Err(e) => return DbResponse::Error(e.to_string()),
             };
@@ -544,20 +656,29 @@ impl DbWorker {
             {
                 Ok(rows) => rows
                     .into_iter()
-                    .map(|(name, columns_str, is_unique, is_primary, index_type)| IndexInfo {
-                        name,
-                        columns: columns_str.split(',').map(|s| s.to_string()).collect(),
-                        is_unique,
-                        is_primary,
-                        index_type,
-                    })
+                    .map(
+                        |(name, columns_str, is_unique, is_primary, index_type)| IndexInfo {
+                            name,
+                            columns: columns_str.split(',').map(|s| s.to_string()).collect(),
+                            is_unique,
+                            is_primary,
+                            index_type,
+                        },
+                    )
                     .collect(),
                 Err(e) => return DbResponse::Error(e.to_string()),
             };
 
         let constraints: Vec<ConstraintInfo> = match sqlx::query_as::<
             _,
-            (String, String, Option<String>, Option<String>, Option<String>, Option<String>),
+            (
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            ),
         >(constraints_sql)
         .bind(&db_name)
         .bind(table_name)
@@ -567,7 +688,14 @@ impl DbWorker {
             Ok(rows) => rows
                 .into_iter()
                 .map(
-                    |(name, constraint_type, columns_str, foreign_table, foreign_columns_str, check_clause)| {
+                    |(
+                        name,
+                        constraint_type,
+                        columns_str,
+                        foreign_table,
+                        foreign_columns_str,
+                        check_clause,
+                    )| {
                         let columns = columns_str
                             .map(|s| s.split(',').map(|c| c.to_string()).collect())
                             .unwrap_or_default();
@@ -631,7 +759,11 @@ impl DbWorker {
                 let columns: Vec<String> = if rows.is_empty() {
                     vec![]
                 } else {
-                    rows[0].columns().iter().map(|c| c.name().to_string()).collect()
+                    rows[0]
+                        .columns()
+                        .iter()
+                        .map(|c| c.name().to_string())
+                        .collect()
                 };
 
                 let mut data: Vec<Vec<String>> = Vec::with_capacity(rows.len());
@@ -644,12 +776,19 @@ impl DbWorker {
                 }
 
                 DbResponse::QueryResult(QueryResult {
+                    sql: sql.to_string(),
                     columns,
                     rows: data,
                     execution_time_ms: start.elapsed().as_millis() as u64,
                 })
             }
-            Err(e) => DbResponse::Error(e.to_string()),
+            Err(e) => {
+                let error_str = e.to_string();
+                if Self::is_connection_error(&error_str) {
+                    return DbResponse::ConnectionLost;
+                }
+                DbResponse::Error(error_str)
+            }
         }
     }
 
@@ -660,7 +799,11 @@ impl DbWorker {
                 let columns: Vec<String> = if rows.is_empty() {
                     vec![]
                 } else {
-                    rows[0].columns().iter().map(|c| c.name().to_string()).collect()
+                    rows[0]
+                        .columns()
+                        .iter()
+                        .map(|c| c.name().to_string())
+                        .collect()
                 };
 
                 let mut data: Vec<Vec<String>> = Vec::with_capacity(rows.len());
@@ -673,13 +816,31 @@ impl DbWorker {
                 }
 
                 DbResponse::QueryResult(QueryResult {
+                    sql: sql.to_string(),
                     columns,
                     rows: data,
                     execution_time_ms: start.elapsed().as_millis() as u64,
                 })
             }
-            Err(e) => DbResponse::Error(e.to_string()),
+            Err(e) => {
+                let error_str = e.to_string();
+                if Self::is_connection_error(&error_str) {
+                    return DbResponse::ConnectionLost;
+                }
+                DbResponse::Error(error_str)
+            }
         }
+    }
+
+    fn is_connection_error(error: &str) -> bool {
+        let error_lower = error.to_lowercase();
+        error_lower.contains("connection")
+            || error_lower.contains("closed")
+            || error_lower.contains("broken pipe")
+            || error_lower.contains("network")
+            || error_lower.contains("timeout")
+            || error_lower.contains("refused")
+            || error_lower.contains("reset")
     }
 
     async fn disconnect(&mut self) -> DbResponse {
@@ -690,6 +851,7 @@ impl DbWorker {
             }
         }
         self.db_type = None;
+        self.schema = None;
         DbResponse::Disconnected
     }
 }
@@ -704,20 +866,50 @@ fn format_pg_value(row: &PgRow, i: usize) -> String {
         return "NULL".to_string();
     }
 
-    let value = row.try_get::<String, _>(i).ok()
+    let value = row
+        .try_get::<String, _>(i)
+        .ok()
         .or_else(|| row.try_get::<i32, _>(i).ok().map(|n| n.to_string()))
         .or_else(|| row.try_get::<i64, _>(i).ok().map(|n| n.to_string()))
         .or_else(|| row.try_get::<i16, _>(i).ok().map(|n| n.to_string()))
-        .or_else(|| row.try_get::<f64, _>(i).ok().map(|n| format_float(n)))
-        .or_else(|| row.try_get::<f32, _>(i).ok().map(|n| format_float(n as f64)))
+        .or_else(|| row.try_get::<f64, _>(i).ok().map(format_float))
+        .or_else(|| {
+            row.try_get::<f32, _>(i)
+                .ok()
+                .map(|n| format_float(n as f64))
+        })
         .or_else(|| row.try_get::<bool, _>(i).ok().map(|b| b.to_string()))
-        .or_else(|| row.try_get::<chrono::NaiveDateTime, _>(i).ok().map(|d| d.to_string()))
-        .or_else(|| row.try_get::<chrono::DateTime<chrono::Utc>, _>(i).ok().map(|d| d.to_string()))
-        .or_else(|| row.try_get::<chrono::NaiveDate, _>(i).ok().map(|d| d.to_string()))
+        .or_else(|| {
+            row.try_get::<chrono::NaiveDateTime, _>(i)
+                .ok()
+                .map(|d| d.to_string())
+        })
+        .or_else(|| {
+            row.try_get::<chrono::DateTime<chrono::Utc>, _>(i)
+                .ok()
+                .map(|d| d.to_string())
+        })
+        .or_else(|| {
+            row.try_get::<chrono::NaiveDate, _>(i)
+                .ok()
+                .map(|d| d.to_string())
+        })
         .or_else(|| row.try_get::<uuid::Uuid, _>(i).ok().map(|u| u.to_string()))
-        .or_else(|| row.try_get::<serde_json::Value, _>(i).ok().map(|j| j.to_string()))
-        .or_else(|| row.try_get::<Vec<f32>, _>(i).ok().map(|v| format_vector(&v)))
-        .or_else(|| row.try_get::<Vec<f64>, _>(i).ok().map(|v| format_vector(&v)))
+        .or_else(|| {
+            row.try_get::<serde_json::Value, _>(i)
+                .ok()
+                .map(|j| j.to_string())
+        })
+        .or_else(|| {
+            row.try_get::<Vec<f32>, _>(i)
+                .ok()
+                .map(|v| format_vector(&v))
+        })
+        .or_else(|| {
+            row.try_get::<Vec<f64>, _>(i)
+                .ok()
+                .map(|v| format_vector(&v))
+        })
         .unwrap_or_else(|| "?".to_string());
 
     truncate_value(value)
@@ -733,19 +925,41 @@ fn format_mysql_value(row: &MySqlRow, i: usize) -> String {
         return "NULL".to_string();
     }
 
-    let value = row.try_get::<String, _>(i).ok()
+    let value = row
+        .try_get::<String, _>(i)
+        .ok()
         .or_else(|| row.try_get::<i32, _>(i).ok().map(|n| n.to_string()))
         .or_else(|| row.try_get::<i64, _>(i).ok().map(|n| n.to_string()))
         .or_else(|| row.try_get::<i16, _>(i).ok().map(|n| n.to_string()))
         .or_else(|| row.try_get::<u32, _>(i).ok().map(|n| n.to_string()))
         .or_else(|| row.try_get::<u64, _>(i).ok().map(|n| n.to_string()))
-        .or_else(|| row.try_get::<f64, _>(i).ok().map(|n| format_float(n)))
-        .or_else(|| row.try_get::<f32, _>(i).ok().map(|n| format_float(n as f64)))
+        .or_else(|| row.try_get::<f64, _>(i).ok().map(format_float))
+        .or_else(|| {
+            row.try_get::<f32, _>(i)
+                .ok()
+                .map(|n| format_float(n as f64))
+        })
         .or_else(|| row.try_get::<bool, _>(i).ok().map(|b| b.to_string()))
-        .or_else(|| row.try_get::<chrono::NaiveDateTime, _>(i).ok().map(|d| d.to_string()))
-        .or_else(|| row.try_get::<chrono::NaiveDate, _>(i).ok().map(|d| d.to_string()))
-        .or_else(|| row.try_get::<chrono::NaiveTime, _>(i).ok().map(|t| t.to_string()))
-        .or_else(|| row.try_get::<serde_json::Value, _>(i).ok().map(|j| j.to_string()))
+        .or_else(|| {
+            row.try_get::<chrono::NaiveDateTime, _>(i)
+                .ok()
+                .map(|d| d.to_string())
+        })
+        .or_else(|| {
+            row.try_get::<chrono::NaiveDate, _>(i)
+                .ok()
+                .map(|d| d.to_string())
+        })
+        .or_else(|| {
+            row.try_get::<chrono::NaiveTime, _>(i)
+                .ok()
+                .map(|t| t.to_string())
+        })
+        .or_else(|| {
+            row.try_get::<serde_json::Value, _>(i)
+                .ok()
+                .map(|j| j.to_string())
+        })
         .unwrap_or_else(|| "?".to_string());
 
     truncate_value(value)
@@ -766,24 +980,39 @@ fn format_float(n: f64) -> String {
     if n.fract() == 0.0 {
         format!("{:.0}", n)
     } else {
-        format!("{:.6}", n).trim_end_matches('0').trim_end_matches('.').to_string()
+        format!("{:.6}", n)
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string()
     }
 }
 
 fn format_vector<T: std::fmt::Display>(v: &[T]) -> String {
     if v.len() <= 5 {
-        format!("[{}]", v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", "))
+        format!(
+            "[{}]",
+            v.iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     } else {
         format!(
             "[{}, {}, {}, ... ({} more) ..., {}, {}]",
-            v[0], v[1], v[2],
+            v[0],
+            v[1],
+            v[2],
             v.len() - 5,
-            v[v.len() - 2], v[v.len() - 1]
+            v[v.len() - 2],
+            v[v.len() - 1]
         )
     }
 }
 
-pub fn spawn_db_worker() -> (mpsc::UnboundedSender<DbRequest>, mpsc::UnboundedReceiver<DbResponse>) {
+pub fn spawn_db_worker() -> (
+    mpsc::UnboundedSender<DbRequest>,
+    mpsc::UnboundedReceiver<DbResponse>,
+) {
     let (request_tx, request_rx) = mpsc::unbounded_channel();
     let (response_tx, response_rx) = mpsc::unbounded_channel();
 

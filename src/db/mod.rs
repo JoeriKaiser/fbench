@@ -58,7 +58,7 @@ impl ConnectionConfig {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ColumnInfo {
     pub name: String,
     pub data_type: String,
@@ -67,7 +67,7 @@ pub struct ColumnInfo {
     pub is_primary_key: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct IndexInfo {
     pub name: String,
     pub columns: Vec<String>,
@@ -76,7 +76,7 @@ pub struct IndexInfo {
     pub index_type: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ConstraintInfo {
     pub name: String,
     pub constraint_type: String,
@@ -86,7 +86,7 @@ pub struct ConstraintInfo {
     pub check_clause: Option<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct TableInfo {
     pub name: String,
     pub columns: Vec<ColumnInfo>,
@@ -121,10 +121,12 @@ pub enum DbResponse {
     TableDetails(TableInfo),
     Error(String),
     Disconnected,
+    ConnectionLost,
 }
 
 #[derive(Debug, Clone)]
 pub struct QueryResult {
+    pub sql: String,
     pub columns: Vec<String>,
     pub rows: Vec<Vec<String>>,
     pub execution_time_ms: u64,

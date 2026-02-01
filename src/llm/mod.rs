@@ -5,16 +5,11 @@ use tokio::sync::mpsc;
 
 use crate::db::SchemaInfo;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum LlmProvider {
+    #[default]
     Ollama,
     OpenRouter,
-}
-
-impl Default for LlmProvider {
-    fn default() -> Self {
-        Self::Ollama
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,8 +94,14 @@ pub struct QuerySuggestion {
 pub enum LlmResponse {
     Generated(String),
     Explanation(String),
-    Optimization { explanation: String, sql: Option<String> },
-    ErrorFix { explanation: String, sql: Option<String> },
+    Optimization {
+        explanation: String,
+        sql: Option<String>,
+    },
+    ErrorFix {
+        explanation: String,
+        sql: Option<String>,
+    },
     QuerySuggestions(Vec<QuerySuggestion>),
     Error(String),
 }
@@ -165,18 +166,23 @@ impl LlmWorker {
     pub async fn run(mut self) {
         while let Some(request) = self.request_rx.recv().await {
             let response = match request {
-                LlmRequest::Generate { prompt, schema, config } => {
-                    self.generate(&prompt, &schema, &config).await
-                }
-                LlmRequest::Explain { sql, config } => {
-                    self.explain(&sql, &config).await
-                }
-                LlmRequest::Optimize { sql, schema, config } => {
-                    self.optimize(&sql, &schema, &config).await
-                }
-                LlmRequest::FixError { sql, error, schema, config } => {
-                    self.fix_error(&sql, &error, &schema, &config).await
-                }
+                LlmRequest::Generate {
+                    prompt,
+                    schema,
+                    config,
+                } => self.generate(&prompt, &schema, &config).await,
+                LlmRequest::Explain { sql, config } => self.explain(&sql, &config).await,
+                LlmRequest::Optimize {
+                    sql,
+                    schema,
+                    config,
+                } => self.optimize(&sql, &schema, &config).await,
+                LlmRequest::FixError {
+                    sql,
+                    error,
+                    schema,
+                    config,
+                } => self.fix_error(&sql, &error, &schema, &config).await,
                 LlmRequest::SuggestQueries { table, config } => {
                     self.suggest_queries(&table, &config).await
                 }
@@ -185,7 +191,12 @@ impl LlmWorker {
         }
     }
 
-    async fn generate(&self, user_prompt: &str, schema: &SchemaInfo, config: &LlmConfig) -> LlmResponse {
+    async fn generate(
+        &self,
+        user_prompt: &str,
+        schema: &SchemaInfo,
+        config: &LlmConfig,
+    ) -> LlmResponse {
         let prompt = self.build_prompt(user_prompt, schema);
 
         let result = match config.provider {
@@ -263,7 +274,13 @@ impl LlmWorker {
         LlmResponse::Optimization { explanation, sql }
     }
 
-    async fn fix_error(&self, sql: &str, error: &str, schema: &SchemaInfo, config: &LlmConfig) -> LlmResponse {
+    async fn fix_error(
+        &self,
+        sql: &str,
+        error: &str,
+        schema: &SchemaInfo,
+        config: &LlmConfig,
+    ) -> LlmResponse {
         let schema_text = self.format_schema(schema);
         let prompt = format!(
             "This SQL query failed with an error. Explain the problem and provide a fix.\n\n\
@@ -295,16 +312,24 @@ impl LlmWorker {
             .unwrap_or_else(|| response.lines().next().unwrap_or("").to_string());
 
         let sql_start = response.find("SQL:");
-        let sql = sql_start.map(|i| {
-            let after = &response[i + 4..];
-            Self::extract_sql(after.trim())
-        }).filter(|s| !s.is_empty());
+        let sql = sql_start
+            .map(|i| {
+                let after = &response[i + 4..];
+                Self::extract_sql(after.trim())
+            })
+            .filter(|s| !s.is_empty());
 
         LlmResponse::ErrorFix { explanation, sql }
     }
 
-    async fn suggest_queries(&self, table: &crate::db::TableInfo, config: &LlmConfig) -> LlmResponse {
-        let columns: Vec<String> = table.columns.iter()
+    async fn suggest_queries(
+        &self,
+        table: &crate::db::TableInfo,
+        config: &LlmConfig,
+    ) -> LlmResponse {
+        let columns: Vec<String> = table
+            .columns
+            .iter()
             .map(|c| {
                 let pk = if c.is_primary_key { " PK" } else { "" };
                 format!("{} {}{}", c.name, c.data_type, pk)
