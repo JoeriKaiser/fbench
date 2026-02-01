@@ -2,7 +2,41 @@
 
 ![fbench logo](./assets/logo_black.svg)
 
-A fast, lightweight database explorer built with Rust and Dioxus.
+## A fast database explorer built with Rust and Dioxus.
+
+## Installation
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JoeriKaiser/fbench/main/install.sh | sh
+```
+
+Or build from source:
+
+```bash
+cargo build --release
+```
+
+## Usage
+
+```bash
+fbench              # Launch application
+```
+
+Connect to a database, browse schema, write SQL queries, and export results.
+
+## Keybindings
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+Enter` | Execute query |
+| `Ctrl+Shift+Enter` | Execute statement at cursor |
+| `Ctrl+S` | Save query |
+| `Ctrl+/` | Toggle comment |
+| `Ctrl+]` | Indent |
+| `Ctrl+[` | Outdent |
+| `↑ / ↓` | Navigate autocomplete |
+| `Tab / Enter` | Accept autocomplete |
+| `Esc` | Dismiss autocomplete |
 
 ## Features
 
@@ -15,39 +49,13 @@ A fast, lightweight database explorer built with Rust and Dioxus.
 - **Query history**: Last 50 executed queries with persistence
 - **Connection health monitoring**: Automatic health checks with visual status indicators
 
-## Install
+## Data Storage
 
-### Quick Install (Recommended)
+Configuration and query history are stored in:
 
-Install the latest release with one command:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/JoeriKaiser/fbench/main/install.sh | sh
-```
-
-Or with a custom install location:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/JoeriKaiser/fbench/main/install.sh | INSTALL_DIR=~/.local/bin sh
-```
-
-### From Source
-
-```bash
-make && sudo make install
-```
-
-Installs to `/usr/local/bin` by default. Override with `PREFIX=/custom/path`.
-
-## Architecture
-
-FBench uses **Dioxus 0.** for cross-platform UI rendering with a modern web-based stack:
-
-- **Frontend**: Dioxus (Rust-based React-like framework)
-- **Styling**: Tailwind CSS for consistent, modern UI design
-- **Syntax Highlighting**: Shiki (same engine as VS Code) for accurate SQL highlighting
-- **Backend**: Rust async workers with sqlx for database operations
-- **Desktop**: WebKit-based rendering via dioxus-desktop
+- **Linux**: `~/.config/fbench/`
+- **macOS**: `~/Library/Application Support/com.fbench.app/`
+- **Windows**: `%APPDATA%\fbench\`
 
 ## System Dependencies
 
@@ -74,14 +82,25 @@ No additional dependencies required. WebKit is provided by the system.
 
 No additional dependencies required. WebKit2GTK is bundled.
 
-## Build & Run
+## Development
 
-### Prerequisites
+### Architecture
 
+FBench uses **Dioxus 0.6** for cross-platform UI rendering with a modern web-based stack:
+
+- **Frontend**: Dioxus (Rust-based React-like framework)
+- **Styling**: Tailwind CSS for consistent, modern UI design
+- **Syntax Highlighting**: Shiki (same engine as VS Code) for accurate SQL highlighting
+- **Backend**: Rust async workers with sqlx for database operations
+- **Desktop**: WebKit-based rendering via dioxus-desktop
+
+### Build & Run
+
+Prerequisites:
 - Rust 1.70+ with Cargo
 - System dependencies (see above)
 
-### Development Build
+Development build:
 
 ```bash
 # Install Dioxus CLI (required for development)
@@ -91,7 +110,7 @@ cargo install dioxus-cli --locked
 dx serve
 ```
 
-### Release Build
+Release build:
 
 ```bash
 # Build optimized release binary
@@ -100,37 +119,6 @@ cargo build --release
 # Run the release binary
 ./target/release/fbench
 ```
-
-### Desktop Build
-
-```bash
-# Build native desktop application
-cargo run --release
-```
-
-## Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `Ctrl+Enter` | Execute all |
-| `Ctrl+Shift+Enter` | Execute statement at cursor |
-| `Ctrl+S` | Save query |
-| `Ctrl+/` | Toggle comment |
-| `Ctrl+]` | Indent |
-| `Ctrl+[` | Outdent |
-| `↑ / ↓` | Navigate autocomplete |
-| `Tab / Enter` | Accept autocomplete |
-| `Esc` | Dismiss autocomplete |
-
-## Configuration
-
-Configuration and query history are stored in:
-
-- **Linux**: `~/.config/fbench/`
-- **macOS**: `~/Library/Application Support/com.fbench.app/`
-- **Windows**: `%APPDATA%\fbench\`
-
-## Development
 
 ### Project Structure
 
@@ -142,7 +130,7 @@ src/
 │   ├── mod.rs           # Types, enums, request/response structs
 │   ├── connection.rs    # DbWorker, connection pools
 │   └── query.rs         # Query utilities
-├── ui/                  # UI components
+├── components/          # UI components
 │   ├── mod.rs           # Re-exports
 │   ├── editor.rs        # SQL editor with Shiki highlighting
 │   ├── results.rs       # Results table
@@ -150,6 +138,15 @@ src/
 │   └── ...              # Other UI components
 ├── config/              # Configuration persistence
 └── export/              # Data export (CSV/JSON/XML)
+```
+
+### Linting and Formatting
+
+```bash
+cargo check              # Check code for errors
+cargo clippy             # Run linter
+cargo clippy --fix       # Auto-fix clippy warnings
+cargo fmt                # Format code with rustfmt
 ```
 
 ### Key Technologies
@@ -160,15 +157,6 @@ src/
 - **sqlx**: Async SQL toolkit with compile-time checked queries
 - **tokio**: Async runtime
 - **serde**: Serialization framework
-
-### Linting and Formatting
-
-```bash
-cargo check              # Check code for errors
-cargo clippy             # Run linter
-cargo clippy --fix       # Auto-fix clippy warnings
-cargo fmt                # Format code with rustfmt
-```
 
 ## Migration Notes (egui → Dioxus)
 
