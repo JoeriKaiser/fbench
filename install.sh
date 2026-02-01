@@ -29,11 +29,13 @@ detect_target() {
     elif [ "$os" = "apple" ]; then
         echo "${arch}-apple-darwin"
     else
-        # Linux: prefer musl for better compatibility, fallback to gnu
+        # Linux: x86_64 only for now
         if [ "$arch" = "x86_64" ]; then
-            echo "x86_64-unknown-linux-musl"
+            echo "x86_64-unknown-linux-gnu"
         else
-            echo "${arch}-unknown-linux-gnu"
+            echo "Error: ARM Linux builds not yet available" >&2
+            echo "Please build from source: cargo build --release" >&2
+            exit 1
         fi
     fi
 }
