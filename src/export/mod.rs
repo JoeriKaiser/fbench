@@ -160,3 +160,22 @@ mod inner {
 
 #[cfg(feature = "rfd")]
 pub use inner::*;
+
+#[cfg(not(feature = "rfd"))]
+pub use no_rfd::*;
+
+#[cfg(not(feature = "rfd"))]
+mod no_rfd {
+    use crate::db::QueryResult;
+
+    #[derive(Clone, Copy)]
+    pub enum ExportFormat {
+        Csv,
+        Json,
+        Xml,
+    }
+
+    pub fn export_results(_result: &QueryResult, _format: ExportFormat) {
+        eprintln!("Export feature not available - rfd feature not enabled");
+    }
+}

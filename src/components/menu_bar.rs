@@ -1,3 +1,4 @@
+use crate::export::{export_results, ExportFormat};
 use crate::state::*;
 use dioxus::prelude::*;
 
@@ -53,7 +54,7 @@ pub fn MenuBar() -> Element {
 
             button {
                 class: "px-3 py-1.5 text-sm {text_class} {hover_class} rounded flex items-center space-x-1.5 transition-colors",
-                onclick: move |_| { /* Save query */ },
+                onclick: move |_| { *SHOW_SAVE_QUERY_DIALOG.write() = true; },
                 svg {
                     class: "w-4 h-4",
                     fill: "none",
@@ -71,7 +72,11 @@ pub fn MenuBar() -> Element {
 
             button {
                 class: "px-3 py-1.5 text-sm {text_class} {hover_class} rounded flex items-center space-x-1.5 transition-colors",
-                onclick: move |_| { /* Export */ },
+                onclick: move |_| {
+                    if let Some(ref result) = *QUERY_RESULT.read() {
+                        export_results(result, ExportFormat::Csv);
+                    }
+                },
                 svg {
                     class: "w-4 h-4",
                     fill: "none",

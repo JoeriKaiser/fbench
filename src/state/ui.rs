@@ -14,6 +14,8 @@ pub static SHOW_CONNECTION_DIALOG: GlobalSignal<bool> = Signal::global(|| false)
 
 pub static SHOW_TABLE_DETAIL: GlobalSignal<Option<String>> = Signal::global(|| None);
 
+pub static SHOW_SAVE_QUERY_DIALOG: GlobalSignal<bool> = Signal::global(|| false);
+
 /// Test connection status
 #[derive(Clone, Debug, PartialEq, Default)]
 pub enum TestConnectionStatus {
@@ -45,6 +47,9 @@ pub static IS_DARK_MODE: GlobalSignal<bool> = Signal::global(|| true);
 /// Panel resize state - stores the height of the SQL editor panel (in pixels)
 /// Results panel takes remaining space
 pub static EDITOR_PANEL_HEIGHT: GlobalSignal<f64> = Signal::global(|| 300.0);
+
+/// Increments when saved queries are updated (for UI reactivity)
+pub static QUERIES_REVISION: GlobalSignal<u64> = Signal::global(|| 0);
 
 /// Whether we're currently resizing panels
 pub static IS_RESIZING_PANELS: GlobalSignal<bool> = Signal::global(|| false);
