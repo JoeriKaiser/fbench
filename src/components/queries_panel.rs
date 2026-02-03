@@ -5,7 +5,7 @@ use dioxus::prelude::*;
 #[component]
 pub fn QueriesPanel() -> Element {
     let mut query_store = use_signal(QueryStore::new);
-    let revision = *QUERIES_REVISION.read();
+    let _revision = *QUERIES_REVISION.read();
     let mut queries = use_resource(move || async move {
         // Read revision to trigger re-fetch when queries change
         let _ = *QUERIES_REVISION.read();

@@ -73,7 +73,11 @@ fn SaveQueryDialogContent() -> Element {
             return;
         }
 
-        queries.push(SavedQuery { name, sql });
+        queries.push(SavedQuery {
+            name,
+            sql,
+            is_bookmarked: false,
+        });
 
         if let Err(e) = store.save_queries(&queries) {
             error_message.set(Some(format!("Failed to save query: {}", e)));

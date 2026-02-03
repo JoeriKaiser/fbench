@@ -1,10 +1,7 @@
 use dioxus::prelude::*;
 use serde_json::Value;
-use std::cell::RefCell;
 
-pub struct ShikiHighlighter {
-    ready: RefCell<bool>,
-}
+pub struct ShikiHighlighter;
 
 impl ShikiHighlighter {
     pub async fn new() -> Result<Self, document::EvalError> {
@@ -39,9 +36,7 @@ impl ShikiHighlighter {
             ));
         }
 
-        Ok(Self {
-            ready: RefCell::new(true),
-        })
+        Ok(Self)
     }
 
     pub async fn highlight(&self, code: &str) -> Result<String, document::EvalError> {
@@ -79,10 +74,6 @@ impl ShikiHighlighter {
                 "Shiki highlight failed".into(),
             ))
         }
-    }
-
-    pub fn is_ready(&self) -> bool {
-        *self.ready.borrow()
     }
 }
 

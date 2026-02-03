@@ -234,10 +234,10 @@ impl LlmWorker {
             "Analyze this SQL query for performance improvements.\n\n\
              Schema:\n{}\n\n\
              Query:\n{}\n\n\
-             Provide:\n\
-             1. Brief explanation of potential issues (1-2 sentences)\n\
+             Provide:\
+             1. Brief explanation of potential issues (1-2 sentences)\
              2. Optimized query if applicable\n\n\
-             Format your response as:\n\
+             Format your response as:\
              EXPLANATION: <your explanation>\n\
              SQL: <optimized query or 'NO_CHANGE' if already optimal>",
             schema_text, sql
@@ -287,7 +287,7 @@ impl LlmWorker {
              Schema:\n{}\n\n\
              Query:\n{}\n\n\
              Error:\n{}\n\n\
-             Format your response as:\n\
+             Format your response as:\
              EXPLANATION: <what went wrong>\n\
              SQL: <corrected query>",
             schema_text, sql, error

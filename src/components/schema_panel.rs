@@ -9,7 +9,7 @@ pub fn SchemaPanel() -> Element {
     let schema = SCHEMA.read();
     let is_dark = *IS_DARK_MODE.read();
     let is_connected = matches!(*CONNECTION.read(), ConnectionState::Connected { .. });
-    let llm_tx = use_context::<LlmSender>();
+    let _llm_tx = use_context::<LlmSender>();
 
     let muted_text = if is_dark {
         "text-gray-600"
@@ -20,16 +20,6 @@ pub fn SchemaPanel() -> Element {
         "text-gray-500"
     } else {
         "text-gray-500"
-    };
-    let item_text = if is_dark {
-        "text-gray-400"
-    } else {
-        "text-gray-600"
-    };
-    let item_hover = if is_dark {
-        "hover:bg-gray-900 hover:text-white"
-    } else {
-        "hover:bg-gray-100 hover:text-gray-900"
     };
 
     rsx! {
@@ -90,11 +80,6 @@ fn SuggestionsSection() -> Element {
         "text-gray-400"
     } else {
         "text-gray-600"
-    };
-    let item_hover = if is_dark {
-        "hover:bg-gray-900 hover:text-white"
-    } else {
-        "hover:bg-gray-100 hover:text-gray-900"
     };
     let muted_text = if is_dark {
         "text-gray-600"

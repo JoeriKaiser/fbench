@@ -47,13 +47,6 @@ impl QueryStore {
             Err(format!("Query '{}' not found", name))
         }
     }
-
-    pub fn get_bookmarked_queries(&self) -> Vec<SavedQuery> {
-        self.load_queries()
-            .into_iter()
-            .filter(|q| q.is_bookmarked)
-            .collect()
-    }
 }
 
 impl Default for QueryStore {

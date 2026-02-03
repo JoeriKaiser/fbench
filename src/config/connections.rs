@@ -85,11 +85,6 @@ impl ConnectionStore {
         let entry = keyring::Entry::new("fbench", connection_name).map_err(|e| e.to_string())?;
         entry.set_password(password).map_err(|e| e.to_string())
     }
-
-    pub fn delete_password(&self, connection_name: &str) -> Result<(), String> {
-        let entry = keyring::Entry::new("fbench", connection_name).map_err(|e| e.to_string())?;
-        entry.delete_credential().map_err(|e| e.to_string())
-    }
 }
 
 impl Default for ConnectionStore {

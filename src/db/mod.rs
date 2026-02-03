@@ -12,26 +12,6 @@ pub enum DatabaseType {
     MySQL,
 }
 
-impl DatabaseType {
-    pub fn default_port(&self) -> u16 {
-        match self {
-            Self::PostgreSQL => 5432,
-            Self::MySQL => 3306,
-        }
-    }
-
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            Self::PostgreSQL => "PostgreSQL",
-            Self::MySQL => "MySQL",
-        }
-    }
-
-    pub fn all() -> &'static [DatabaseType] {
-        &[DatabaseType::PostgreSQL, DatabaseType::MySQL]
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct ConnectionConfig {
     pub db_type: DatabaseType,
