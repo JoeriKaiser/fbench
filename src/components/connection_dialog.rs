@@ -85,9 +85,38 @@ fn ConnectionDialogContent() -> Element {
         port.set(new_port);
     });
 
-    // Reset test status when dialog opens
+    // Reset test status when dialog opens and auto-select last used connection
     use_effect(move || {
         *TEST_CONNECTION_STATUS.write() = TestConnectionStatus::Idle;
+
+        // Auto-select last used connection if available
+        if let Some(last_used_name) = store.read().get_last_used() {
+            if let Some(conn) = saved_connections
+                .read()
+                .iter()
+                .find(|c| c.name == last_used_name)
+            {
+                db_type.set(conn.db_type);
+                host.set(conn.host.clone());
+                port.set(conn.port);
+                user.set(conn.user.clone());
+                database.set(conn.database.clone());
+                schema.set(conn.schema.clone());
+                connection_name.set(conn.name.clone());
+
+                // Load password from keyring if not saved
+                if conn.save_password {
+                    if let Some(pwd) = conn.password.clone() {
+                        password.set(pwd);
+                    }
+                } else {
+                    let st = store.read();
+                    if let Some(pwd) = st.get_password(&conn.name) {
+                        password.set(pwd);
+                    }
+                }
+            }
+        }
     });
 
     let validate_inputs = move || -> Result<(), String> {
@@ -123,6 +152,12 @@ fn ConnectionDialogContent() -> Element {
 
         if let Some(tx) = try_use_context::<DbSender>() {
             let _ = tx.send(crate::db::DbRequest::Connect(config));
+        }
+
+        // Set as last used if we have a connection name
+        let name = connection_name.read().trim().to_string();
+        if !name.is_empty() {
+            let _ = store.read().set_last_used(&name);
         }
 
         *TEST_CONNECTION_STATUS.write() = TestConnectionStatus::Idle;
@@ -192,6 +227,9 @@ fn ConnectionDialogContent() -> Element {
         if save_password() {
             let _ = st.set_password(&name, &password.read());
         }
+
+        // Set as last used connection (before dropping st)
+        let _ = st.set_last_used(&name);
 
         // Refresh saved connections list
         saved_connections.set(conns);
