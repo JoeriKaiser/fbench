@@ -117,7 +117,7 @@ pub fn LlmPanel() -> Element {
                 // Robot icon
                 span {
                     class: "text-xl",
-                    "🤖"
+                    ""
                 }
 
                 // Preset selector
@@ -175,7 +175,7 @@ pub fn LlmPanel() -> Element {
                     class: "p-2 text-lg hover:bg-gray-700 rounded transition-colors",
                     onclick: on_settings_click,
                     title: "LLM Settings",
-                    "⚙"
+                    ""
                 }
 
                 // Loading spinner
