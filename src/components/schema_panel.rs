@@ -1,4 +1,5 @@
 use crate::components::context_menu::show_table_context_menu;
+use crate::config::RecentTablesStore;
 use crate::state::*;
 use dioxus::prelude::*;
 
@@ -106,22 +107,30 @@ fn TableItem(table: crate::db::TableInfo) -> Element {
 
     // Clone table name for use in closures
     let table_name_for_context_menu = table.name.clone();
+    let table_name_for_tracking = table.name.clone();
+    let table_name_for_select = table.name.clone();
 
     rsx! {
         div {
             class: "space-y-1",
 
-            button {
-                class: "w-full flex items-center space-x-2 px-2 py-1.5 rounded text-sm {item_text} {item_hover} text-left transition-colors",
-                onclick: move |_| {
-                    let current = *is_expanded.read();
-                    is_expanded.set(!current);
-                },
-                oncontextmenu: move |e| {
-                    e.prevent_default();
-                    let coords = e.data.client_coordinates();
-                    show_table_context_menu(table_name_for_context_menu.clone(), coords.x as i32, coords.y as i32);
-                },
+                button {
+                    class: "w-full flex items-center space-x-2 px-2 py-1.5 rounded text-sm {item_text} {item_hover} text-left transition-colors",
+                    onclick: move |_| {
+                        let current = *is_expanded.read();
+                        is_expanded.set(!current);
+                        // Track table access
+                        let store = RecentTablesStore::new();
+                        let _ = store.add(&table_name_for_tracking);
+                        // Update recent tables signal
+                        let recent = store.load();
+                        *RECENT_TABLES.write() = recent.into_iter().map(|e| e.table_name).collect();
+                    },
+                    oncontextmenu: move |e| {
+                        e.prevent_default();
+                        let coords = e.data.client_coordinates();
+                        show_table_context_menu(table_name_for_context_menu.clone(), coords.x as i32, coords.y as i32);
+                    },
 
                 svg {
                     class: "w-3.5 h-3.5 {chevron_color} transition-transform",
@@ -195,8 +204,13 @@ fn TableItem(table: crate::db::TableInfo) -> Element {
                     button {
                         class: "mt-2 px-2 py-1 text-xs {item_text} hover:text-blue-500 text-left transition-colors",
                         onclick: move |_| {
-                            let sql = format!("SELECT * FROM \"{}\" LIMIT 100;", table.name);
+                            let sql = format!("SELECT * FROM \"{}\" LIMIT 100;", table_name_for_select);
                             *EDITOR_CONTENT.write() = sql;
+                            // Track table access when generating SELECT
+                            let store = RecentTablesStore::new();
+                            let _ = store.add(&table_name_for_select);
+                            let recent = store.load();
+                            *RECENT_TABLES.write() = recent.into_iter().map(|e| e.table_name).collect();
                         },
                         "SELECT * FROM {table.name}"
                     }

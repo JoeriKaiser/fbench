@@ -6,6 +6,7 @@ use std::path::PathBuf;
 pub struct SavedQuery {
     pub name: String,
     pub sql: String,
+    pub is_bookmarked: bool,
 }
 
 pub struct QueryStore {
@@ -35,6 +36,23 @@ impl QueryStore {
     pub fn save_queries(&self, queries: &[SavedQuery]) -> Result<(), String> {
         let json = serde_json::to_string_pretty(queries).map_err(|e| e.to_string())?;
         fs::write(&self.config_path, json).map_err(|e| e.to_string())
+    }
+
+    pub fn toggle_bookmark(&self, name: &str) -> Result<(), String> {
+        let mut queries = self.load_queries();
+        if let Some(query) = queries.iter_mut().find(|q| q.name == name) {
+            query.is_bookmarked = !query.is_bookmarked;
+            self.save_queries(&queries)
+        } else {
+            Err(format!("Query '{}' not found", name))
+        }
+    }
+
+    pub fn get_bookmarked_queries(&self) -> Vec<SavedQuery> {
+        self.load_queries()
+            .into_iter()
+            .filter(|q| q.is_bookmarked)
+            .collect()
     }
 }
 

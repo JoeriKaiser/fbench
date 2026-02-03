@@ -1,8 +1,19 @@
+use crate::config::DraftStore;
 use crate::db::QueryResult;
 use dioxus::prelude::*;
 
-pub static EDITOR_CONTENT: GlobalSignal<String> =
-    Signal::global(|| "SELECT * FROM users LIMIT 10;".to_string());
+// Load draft content or use default
+fn get_initial_content() -> String {
+    let store = DraftStore::new();
+    let draft = store.load();
+    if draft.content.is_empty() {
+        "SELECT * FROM users LIMIT 10;".to_string()
+    } else {
+        draft.content
+    }
+}
+
+pub static EDITOR_CONTENT: GlobalSignal<String> = Signal::global(|| get_initial_content());
 
 pub static QUERY_RESULT: GlobalSignal<Option<QueryResult>> = Signal::global(|| None);
 

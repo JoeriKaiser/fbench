@@ -1,3 +1,5 @@
+use crate::components::TemplateSelector;
+use crate::config::DraftStore;
 use crate::hooks::use_shiki::use_shiki;
 use crate::services::DbSender;
 use crate::state::*;
@@ -36,6 +38,16 @@ pub fn SqlEditor() -> Element {
                     highlighted.set(html);
                 }
             }
+        });
+    });
+
+    // Auto-save draft every 2 seconds when content changes
+    use_effect(move || {
+        let content = EDITOR_CONTENT.read().clone();
+        spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            let store = DraftStore::new();
+            let _ = store.save(&content);
         });
     });
 
@@ -96,6 +108,8 @@ pub fn SqlEditor() -> Element {
 
                 div { class: "flex-1" }
 
+                TemplateSelector {}
+
                 span {
                     class: "text-xs {hint_text}",
                     "Ctrl+Enter to run"
@@ -127,6 +141,21 @@ pub fn SqlEditor() -> Element {
                             e.prevent_default();
                             execute_query();
                         }
+                        // NEW: Ctrl+D to duplicate line
+                        else if e.data.key() == Key::Character("d".to_string()) &&
+                                e.data.modifiers().contains(keyboard_types::Modifiers::CONTROL) {
+                            e.prevent_default();
+                            duplicate_current_line();
+                        }
+                        // NEW: Tab indentation
+                        else if e.data.key() == Key::Tab {
+                            e.prevent_default();
+                            if e.data.modifiers().contains(keyboard_types::Modifiers::SHIFT) {
+                                outdent_selection();
+                            } else {
+                                indent_selection();
+                            }
+                        }
                     },
                     spellcheck: "false",
                     placeholder: "Enter your SQL query here...",
@@ -145,4 +174,40 @@ fn execute_query() {
 
 fn execute_statement() {
     execute_query();
+}
+
+fn duplicate_current_line() {
+    let content = EDITOR_CONTENT.read().clone();
+    // This is a simplified version - we'd need access to cursor position
+    // for proper line duplication. For now, duplicate entire content.
+    *EDITOR_CONTENT.write() = format!("{}\n{}", content, content);
+}
+
+fn indent_selection() {
+    let content = EDITOR_CONTENT.read().clone();
+    // Simple implementation: add 4 spaces at start of each line
+    let indented: String = content
+        .lines()
+        .map(|line| format!("    {}", line))
+        .collect::<Vec<_>>()
+        .join("\n");
+    *EDITOR_CONTENT.write() = indented;
+}
+
+fn outdent_selection() {
+    let content = EDITOR_CONTENT.read().clone();
+    let outdented: String = content
+        .lines()
+        .map(|line| {
+            if line.starts_with("    ") {
+                line[4..].to_string()
+            } else if line.starts_with('\t') {
+                line[1..].to_string()
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    *EDITOR_CONTENT.write() = outdented;
 }

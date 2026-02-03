@@ -5,6 +5,7 @@ use dioxus::prelude::*;
 #[component]
 pub fn HistoryPanel() -> Element {
     let mut entries: Signal<Vec<HistoryEntry>> = use_signal(Vec::new);
+    let mut search_query = use_signal(|| String::new());
     let is_dark = *IS_DARK_MODE.read();
 
     // Reload history when HISTORY_REVISION changes (indicating new query executed)
@@ -12,6 +13,21 @@ pub fn HistoryPanel() -> Element {
         let _revision = *HISTORY_REVISION.read();
         let history = QueryHistory::new();
         entries.set(history.get_entries().to_vec());
+    });
+
+    // Filter entries based on search
+    let filtered_entries = use_memo(move || {
+        let query = search_query.read().to_lowercase();
+        if query.is_empty() {
+            entries.read().clone()
+        } else {
+            entries
+                .read()
+                .iter()
+                .filter(|e| e.sql.to_lowercase().contains(&query))
+                .cloned()
+                .collect()
+        }
     });
 
     // Theme-aware classes
@@ -50,6 +66,22 @@ pub fn HistoryPanel() -> Element {
         div {
             class: "space-y-2",
 
+            // Search input
+            div { class: "mb-3",
+                input {
+                    class: "w-full px-3 py-2 text-sm rounded border",
+                    class: if is_dark {
+                        "bg-black border-gray-700 text-gray-300 placeholder-gray-600"
+                    } else {
+                        "bg-white border-gray-300 text-gray-700 placeholder-gray-400"
+                    },
+                    r#type: "text",
+                    placeholder: "Search history...",
+                    value: "{search_query}",
+                    oninput: move |e| search_query.set(e.value().clone()),
+                }
+            }
+
             div {
                 class: "flex items-center justify-between mb-3",
                 h3 {
@@ -70,16 +102,20 @@ pub fn HistoryPanel() -> Element {
                 }
             }
 
-            if entries.read().is_empty() {
+            if filtered_entries.read().is_empty() {
                 div {
                     class: "{muted_text} text-sm text-center py-8",
-                    "No query history"
+                    if search_query.read().is_empty() {
+                        "No query history"
+                    } else {
+                        "No matching queries"
+                    }
                 }
             } else {
                 div {
                     class: "space-y-1",
 
-                    for entry in (*entries.read()).iter() {
+                    for entry in (*filtered_entries.read()).iter() {
                         {
                             let entry_sql = entry.sql.clone();
                             let entry_time = entry.executed_at.format("%H:%M").to_string();

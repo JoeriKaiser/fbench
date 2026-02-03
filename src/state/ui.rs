@@ -48,3 +48,6 @@ pub static EDITOR_PANEL_HEIGHT: GlobalSignal<f64> = Signal::global(|| 300.0);
 
 /// Whether we're currently resizing panels
 pub static IS_RESIZING_PANELS: GlobalSignal<bool> = Signal::global(|| false);
+
+/// Quick switcher visibility
+pub static SHOW_QUICK_SWITCHER: GlobalSignal<bool> = Signal::global(|| false);

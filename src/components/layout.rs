@@ -1,4 +1,5 @@
 use crate::components::*;
+use crate::config::{SessionState, SessionStore};
 use crate::state::*;
 use dioxus::prelude::*;
 
@@ -32,6 +33,25 @@ pub fn AppLayout() -> Element {
     let editor_height = *EDITOR_PANEL_HEIGHT.read();
     let is_resizing = *IS_RESIZING_PANELS.read();
     let is_dark = *IS_DARK_MODE.read();
+
+    // Save session state when UI changes
+    use_effect(move || {
+        let left_tab = match *LEFT_TAB.read() {
+            LeftTab::Schema => "Schema",
+            LeftTab::Queries => "Queries",
+            LeftTab::History => "History",
+        };
+        let panel_height = *EDITOR_PANEL_HEIGHT.read();
+
+        let state = SessionState {
+            left_tab: left_tab.to_string(),
+            sidebar_scroll_position: 0.0,
+            editor_panel_height: panel_height,
+        };
+
+        let store = SessionStore::new();
+        let _ = store.save(&state);
+    });
     let resize_bg = if is_resizing {
         if is_dark {
             "bg-gray-700"
@@ -132,6 +152,14 @@ pub fn AppLayout() -> Element {
 
         div {
             class: "h-screen w-screen flex flex-col overflow-hidden {theme_class}",
+            // Global keyboard shortcut for quick switcher
+            onkeydown: move |e: KeyboardEvent| {
+                if e.key() == Key::Character("p".to_string()) &&
+                   e.modifiers().contains(Modifiers::CONTROL) {
+                    e.prevent_default();
+                    *SHOW_QUICK_SWITCHER.write() = true;
+                }
+            },
             // Global mouse events for resizing
             onmousemove: move |e: MouseEvent| {
                 if *IS_RESIZING_PANELS.read() {
@@ -187,6 +215,7 @@ pub fn AppLayout() -> Element {
             }
 
             StatusBar {}
+            QuickSwitcher {}
         }
 
         ConnectionDialog {}

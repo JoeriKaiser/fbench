@@ -50,6 +50,9 @@ async fn handle_db_responses(
                     Some(result.rows.len()),
                     Some(result.execution_time_ms),
                 );
+                // Clear draft after successful execution
+                let store = crate::config::DraftStore::new();
+                let _ = store.clear();
                 // Notify UI that history changed
                 *HISTORY_REVISION.write() += 1;
                 *QUERY_RESULT.write() = Some(result.clone());

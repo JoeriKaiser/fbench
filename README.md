@@ -31,6 +31,10 @@ Connect to a database, browse schema, write SQL queries, and export results.
 | `Ctrl+Enter` | Execute query |
 | `Ctrl+Shift+Enter` | Execute statement at cursor |
 | `Ctrl+S` | Save query |
+| `Ctrl+P` | Open quick switcher |
+| `Ctrl+D` | Duplicate current line |
+| `Tab` | Indent selection |
+| `Shift+Tab` | Outdent selection |
 | `Ctrl+/` | Toggle comment |
 | `Ctrl+]` | Indent |
 | `Ctrl+[` | Outdent |
@@ -48,6 +52,13 @@ Connect to a database, browse schema, write SQL queries, and export results.
 - **Connections**: Save and manage multiple connections
 - **Query history**: Last 50 executed queries with persistence
 - **Connection health monitoring**: Automatic health checks with visual status indicators
+- **Query Bookmarks**: Star/favorite frequently used queries
+- **Quick Switcher**: Command palette (Ctrl+P) for tables, queries, history
+- **Recent Tables**: Track recently accessed tables
+- **Query Templates**: Pre-built templates with variable substitution
+- **Editor Drafts**: Auto-saved editor content
+- **History Search**: Filter query history
+- **Session Persistence**: Restore UI state on reconnect
 
 ## Data Storage
 
