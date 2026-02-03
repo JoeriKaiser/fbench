@@ -84,7 +84,7 @@ pub enum LlmRequest {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct QuerySuggestion {
     pub label: String,
     pub sql: String,

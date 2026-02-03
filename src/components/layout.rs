@@ -193,6 +193,10 @@ pub fn AppLayout() -> Element {
                         style: "height: {editor_height}px",
                         SqlEditor {}
                     }
+
+                    // AI Results Panel (collapsible)
+                    AiResultsPanel {}
+
                     // Resize handle
                     div {
                         class: "h-1 resize-handle flex items-center justify-center transition-colors {resize_bg}",

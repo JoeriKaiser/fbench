@@ -96,13 +96,58 @@ async fn handle_llm_responses(mut rx: mpsc::UnboundedReceiver<crate::llm::LlmRes
                 *LLM_PROMPT.write() = String::new();
                 *LLM_STATUS.write() = LlmStatus::Success("Query generated successfully".into());
             }
+            LlmResponse::Explanation(text) => {
+                *AI_PANEL.write() = AiPanelState {
+                    visible: true,
+                    loading: false,
+                    title: "Explanation".to_string(),
+                    content: text,
+                    suggested_sql: None,
+                };
+                *LLM_GENERATING.write() = false;
+            }
+            LlmResponse::Optimization { explanation, sql } => {
+                *AI_PANEL.write() = AiPanelState {
+                    visible: true,
+                    loading: false,
+                    title: "Optimization".to_string(),
+                    content: explanation,
+                    suggested_sql: sql,
+                };
+                *LLM_GENERATING.write() = false;
+            }
+            LlmResponse::ErrorFix { explanation, sql } => {
+                *AI_PANEL.write() = AiPanelState {
+                    visible: true,
+                    loading: false,
+                    title: "Error Fix".to_string(),
+                    content: explanation,
+                    suggested_sql: sql,
+                };
+                *LLM_GENERATING.write() = false;
+            }
+            LlmResponse::QuerySuggestions(suggestions) => {
+                let table_name = SCHEMA_SUGGESTIONS.read().table_name.clone();
+                *SCHEMA_SUGGESTIONS.write() = SuggestionsState {
+                    suggestions,
+                    loading: false,
+                    table_name,
+                };
+                *LLM_GENERATING.write() = false;
+            }
             LlmResponse::Error(e) => {
                 *LLM_GENERATING.write() = false;
-                *LLM_STATUS.write() = LlmStatus::Error(e);
-            }
-            _ => {
-                // Other response types not handled yet
-                *LLM_GENERATING.write() = false;
+                *LLM_STATUS.write() = LlmStatus::Error(e.clone());
+                // Also show error in AI panel if it's visible
+                if AI_PANEL.read().visible {
+                    *AI_PANEL.write() = AiPanelState {
+                        visible: true,
+                        loading: false,
+                        title: "Error".to_string(),
+                        content: e,
+                        suggested_sql: None,
+                    };
+                }
             }
         }
     }

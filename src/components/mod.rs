@@ -1,3 +1,4 @@
+pub mod ai_results_panel;
 pub mod connection_dialog;
 pub mod context_menu;
 pub mod history_panel;
@@ -14,6 +15,7 @@ pub mod sql_editor;
 pub mod status_bar;
 pub mod template_selector;
 
+pub use ai_results_panel::*;
 pub use connection_dialog::*;
 pub use context_menu::*;
 pub use history_panel::*;
