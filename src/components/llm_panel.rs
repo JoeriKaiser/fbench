@@ -45,17 +45,17 @@ pub fn LlmPanel() -> Element {
         "text-gray-400"
     };
     let select_bg = if is_dark {
-        "bg-gray-900"
+        "bg-gray-800"
     } else {
         "bg-gray-100"
     };
     let select_border = if is_dark {
-        "border-gray-700"
+        "border-gray-600"
     } else {
         "border-gray-300"
     };
     let select_text = if is_dark {
-        "text-gray-300"
+        "text-gray-200"
     } else {
         "text-gray-700"
     };
