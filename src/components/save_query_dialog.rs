@@ -48,6 +48,7 @@ pub fn SaveQueryDialog() -> Element {
     };
 
     let on_save = move |_| {
+        tracing::info!("Save button clicked in dialog");
         let name = query_name.read().trim().to_string();
         if name.is_empty() {
             error_message.set(Some("Please enter a query name".to_string()));
@@ -75,6 +76,8 @@ pub fn SaveQueryDialog() -> Element {
             error_message.set(Some(format!("Failed to save query: {}", e)));
             return;
         }
+
+        tracing::info!("Query saved successfully");
 
         // Trigger refresh of queries panel
         *QUERIES_REVISION.write() += 1;
