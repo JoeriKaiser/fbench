@@ -869,9 +869,14 @@ fn format_pg_value(row: &PgRow, i: usize) -> String {
     let value = row
         .try_get::<String, _>(i)
         .ok()
-        .or_else(|| row.try_get::<i32, _>(i).ok().map(|n| n.to_string()))
         .or_else(|| row.try_get::<i64, _>(i).ok().map(|n| n.to_string()))
+        .or_else(|| row.try_get::<i32, _>(i).ok().map(|n| n.to_string()))
         .or_else(|| row.try_get::<i16, _>(i).ok().map(|n| n.to_string()))
+        .or_else(|| {
+            row.try_get::<sqlx::types::BigDecimal, _>(i)
+                .ok()
+                .map(|n| n.to_string())
+        })
         .or_else(|| row.try_get::<f64, _>(i).ok().map(format_float))
         .or_else(|| {
             row.try_get::<f32, _>(i)
@@ -895,6 +900,16 @@ fn format_pg_value(row: &PgRow, i: usize) -> String {
                 .map(|d| d.to_string())
         })
         .or_else(|| row.try_get::<uuid::Uuid, _>(i).ok().map(|u| u.to_string()))
+        .or_else(|| {
+            row.try_get::<sqlx::types::ipnetwork::IpNetwork, _>(i)
+                .ok()
+                .map(|ip| ip.to_string())
+        })
+        .or_else(|| {
+            row.try_get::<serde_json::Value, _>(i)
+                .ok()
+                .map(|j| j.to_string())
+        })
         .or_else(|| {
             row.try_get::<serde_json::Value, _>(i)
                 .ok()
@@ -928,11 +943,19 @@ fn format_mysql_value(row: &MySqlRow, i: usize) -> String {
     let value = row
         .try_get::<String, _>(i)
         .ok()
-        .or_else(|| row.try_get::<i32, _>(i).ok().map(|n| n.to_string()))
         .or_else(|| row.try_get::<i64, _>(i).ok().map(|n| n.to_string()))
+        .or_else(|| row.try_get::<i32, _>(i).ok().map(|n| n.to_string()))
         .or_else(|| row.try_get::<i16, _>(i).ok().map(|n| n.to_string()))
-        .or_else(|| row.try_get::<u32, _>(i).ok().map(|n| n.to_string()))
+        .or_else(|| row.try_get::<i8, _>(i).ok().map(|n| n.to_string()))
         .or_else(|| row.try_get::<u64, _>(i).ok().map(|n| n.to_string()))
+        .or_else(|| row.try_get::<u32, _>(i).ok().map(|n| n.to_string()))
+        .or_else(|| row.try_get::<u16, _>(i).ok().map(|n| n.to_string()))
+        .or_else(|| row.try_get::<u8, _>(i).ok().map(|n| n.to_string()))
+        .or_else(|| {
+            row.try_get::<sqlx::types::BigDecimal, _>(i)
+                .ok()
+                .map(|n| n.to_string())
+        })
         .or_else(|| row.try_get::<f64, _>(i).ok().map(format_float))
         .or_else(|| {
             row.try_get::<f32, _>(i)
@@ -954,6 +977,11 @@ fn format_mysql_value(row: &MySqlRow, i: usize) -> String {
             row.try_get::<chrono::NaiveTime, _>(i)
                 .ok()
                 .map(|t| t.to_string())
+        })
+        .or_else(|| {
+            row.try_get::<std::net::IpAddr, _>(i)
+                .ok()
+                .map(|ip| ip.to_string())
         })
         .or_else(|| {
             row.try_get::<serde_json::Value, _>(i)
