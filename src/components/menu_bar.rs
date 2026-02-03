@@ -1,3 +1,4 @@
+use crate::export::{export_results, ExportFormat};
 use crate::state::*;
 use dioxus::prelude::*;
 
@@ -53,7 +54,10 @@ pub fn MenuBar() -> Element {
 
             button {
                 class: "px-3 py-1.5 text-sm {text_class} {hover_class} rounded flex items-center space-x-1.5 transition-colors",
-                onclick: move |_| { /* Save query */ },
+                onclick: move |_| {
+                    tracing::info!("Save Query button clicked");
+                    *SHOW_SAVE_QUERY_DIALOG.write() = true;
+                },
                 svg {
                     class: "w-4 h-4",
                     fill: "none",
@@ -71,7 +75,17 @@ pub fn MenuBar() -> Element {
 
             button {
                 class: "px-3 py-1.5 text-sm {text_class} {hover_class} rounded flex items-center space-x-1.5 transition-colors",
-                onclick: move |_| { /* Export */ },
+                onclick: move |_| {
+                    tracing::info!("Export button clicked");
+                    let result = QUERY_RESULT.read();
+                    tracing::info!("Query result exists: {}", result.is_some());
+                    if let Some(result) = result.clone() {
+                        tracing::info!("Exporting {} rows", result.rows.len());
+                        export_results(result, ExportFormat::Csv);
+                    } else {
+                        tracing::warn!("No query results to export");
+                    }
+                },
                 svg {
                     class: "w-4 h-4",
                     fill: "none",

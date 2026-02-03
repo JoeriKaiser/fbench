@@ -227,6 +227,8 @@ pub fn AppLayout() -> Element {
         ContextMenu {}
 
         LlmSettingsDialog {}
+
+        SaveQueryDialog {}
     }
 }
 
