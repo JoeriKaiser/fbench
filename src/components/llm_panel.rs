@@ -44,6 +44,23 @@ pub fn LlmPanel() -> Element {
     } else {
         "text-gray-400"
     };
+    let select_bg = if is_dark {
+        "bg-gray-900"
+    } else {
+        "bg-gray-100"
+    };
+    let select_border = if is_dark {
+        "border-gray-700"
+    } else {
+        "border-gray-300"
+    };
+    let select_text = if is_dark {
+        "text-gray-300"
+    } else {
+        "text-gray-700"
+    };
+
+    let selected_preset = *SELECTED_PRESET_INDEX.read();
 
     // Generate callback - captures llm_tx by clone for FnMut
     let llm_tx_clone = llm_tx.clone();
@@ -103,6 +120,27 @@ pub fn LlmPanel() -> Element {
                     "🤖"
                 }
 
+                // Preset selector
+                select {
+                    class: "px-3 py-2 text-sm rounded border {select_bg} {select_border} {select_text} focus:outline-none focus:ring-2 focus:ring-blue-500",
+                    value: "{selected_preset}",
+                    disabled: is_generating || !is_connected,
+                    onchange: move |e| {
+                        if let Ok(index) = e.value().parse::<usize>() {
+                            *SELECTED_PRESET_INDEX.write() = index;
+                            if let Some(preset) = LLM_PRESETS.get(index) {
+                                *LLM_PROMPT.write() = preset.prompt.to_string();
+                            }
+                        }
+                    },
+                    for (index, preset) in LLM_PRESETS.iter().enumerate() {
+                        option {
+                            value: "{index}",
+                            "{preset.name}"
+                        }
+                    }
+                }
+
                 // Prompt input
                 input {
                     class: "flex-1 px-3 py-2 text-sm rounded border {input_bg} {input_border} {input_text} focus:outline-none focus:ring-2 focus:ring-blue-500",
@@ -112,6 +150,10 @@ pub fn LlmPanel() -> Element {
                     disabled: is_generating || !is_connected,
                     oninput: move |e| {
                         *LLM_PROMPT.write() = e.value().clone();
+                        // If user types, switch to "Custom" preset
+                        if !e.value().is_empty() {
+                            *SELECTED_PRESET_INDEX.write() = 0;
+                        }
                     },
                     onkeydown: on_key_down,
                 }
