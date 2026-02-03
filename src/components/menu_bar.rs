@@ -79,7 +79,7 @@ pub fn MenuBar() -> Element {
                     tracing::info!("Export button clicked");
                     let result = QUERY_RESULT.read();
                     tracing::info!("Query result exists: {}", result.is_some());
-                    if let Some(ref result) = *result {
+                    if let Some(result) = result.clone() {
                         tracing::info!("Exporting {} rows", result.rows.len());
                         export_results(result, ExportFormat::Csv);
                     } else {

@@ -1,4 +1,5 @@
 use crate::db::QueryResult;
+use dioxus::prelude::*;
 use std::fs;
 
 #[derive(Clone, Copy, Debug)]
@@ -8,13 +9,13 @@ pub enum ExportFormat {
     Xml,
 }
 
-pub fn export_results(result: &QueryResult, format: ExportFormat) {
+pub fn export_results(result: QueryResult, format: ExportFormat) {
     tracing::info!("Starting export with format {:?}", format);
 
     let (extension, content) = match format {
-        ExportFormat::Csv => ("csv", export_csv(result)),
-        ExportFormat::Json => ("json", export_json(result)),
-        ExportFormat::Xml => ("xml", export_xml(result)),
+        ExportFormat::Csv => ("csv", export_csv(&result)),
+        ExportFormat::Json => ("json", export_json(&result)),
+        ExportFormat::Xml => ("xml", export_xml(&result)),
     };
 
     let filter_name = match format {
@@ -23,22 +24,25 @@ pub fn export_results(result: &QueryResult, format: ExportFormat) {
         ExportFormat::Xml => "XML files",
     };
 
-    tracing::info!("Opening file dialog for {} export", extension);
+    // Run file dialog in a spawn block to avoid blocking the UI thread
+    spawn(async move {
+        tracing::info!("Opening file dialog for {} export", extension);
 
-    if let Some(path) = rfd::FileDialog::new()
-        .add_filter(filter_name, &[extension])
-        .set_file_name(format!("export.{}", extension))
-        .save_file()
-    {
-        tracing::info!("Selected path: {:?}", path);
-        if let Err(e) = fs::write(&path, content) {
-            tracing::error!("Failed to export: {}", e);
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter(filter_name, &[extension])
+            .set_file_name(format!("export.{}", extension))
+            .save_file()
+        {
+            tracing::info!("Selected path: {:?}", path);
+            if let Err(e) = fs::write(&path, content) {
+                tracing::error!("Failed to export: {}", e);
+            } else {
+                tracing::info!("Export successful");
+            }
         } else {
-            tracing::info!("Export successful");
+            tracing::info!("File dialog cancelled");
         }
-    } else {
-        tracing::info!("File dialog cancelled");
-    }
+    });
 }
 
 fn export_csv(result: &QueryResult) -> String {

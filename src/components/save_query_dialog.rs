@@ -4,12 +4,15 @@ use dioxus::prelude::*;
 
 #[component]
 pub fn SaveQueryDialog() -> Element {
-    let show = *SHOW_SAVE_QUERY_DIALOG.read();
-
-    if !show {
-        return rsx! {};
+    rsx! {
+        if *SHOW_SAVE_QUERY_DIALOG.read() {
+            SaveQueryDialogContent {}
+        }
     }
+}
 
+#[component]
+fn SaveQueryDialogContent() -> Element {
     let is_dark = *IS_DARK_MODE.read();
     let mut query_name = use_signal(String::new);
     let mut error_message = use_signal(|| None::<String>);
