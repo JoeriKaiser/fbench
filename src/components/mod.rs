@@ -1,3 +1,4 @@
+pub mod ai_results_panel;
 pub mod connection_dialog;
 pub mod context_menu;
 pub mod history_panel;
@@ -8,12 +9,14 @@ pub mod menu_bar;
 pub mod queries_panel;
 pub mod quick_switcher;
 pub mod results_table;
+pub mod save_query_dialog;
 pub mod schema_panel;
 pub mod sidebar;
 pub mod sql_editor;
 pub mod status_bar;
 pub mod template_selector;
 
+pub use ai_results_panel::*;
 pub use connection_dialog::*;
 pub use context_menu::*;
 pub use history_panel::*;
@@ -23,6 +26,7 @@ pub use menu_bar::*;
 pub use queries_panel::*;
 pub use quick_switcher::*;
 pub use results_table::*;
+pub use save_query_dialog::*;
 pub use schema_panel::*;
 pub use sidebar::*;
 pub use sql_editor::*;

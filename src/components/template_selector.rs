@@ -1,4 +1,4 @@
-use crate::config::{get_builtin_templates, QueryTemplate};
+use crate::config::get_builtin_templates;
 use crate::state::*;
 use dioxus::prelude::*;
 

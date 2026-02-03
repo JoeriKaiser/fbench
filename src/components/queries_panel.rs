@@ -1,11 +1,16 @@
 use crate::config::QueryStore;
-use crate::state::{EDITOR_CONTENT, IS_DARK_MODE};
+use crate::state::{EDITOR_CONTENT, IS_DARK_MODE, QUERIES_REVISION};
 use dioxus::prelude::*;
 
 #[component]
 pub fn QueriesPanel() -> Element {
     let mut query_store = use_signal(QueryStore::new);
-    let mut queries = use_resource(move || async move { query_store.read().load_queries() });
+    let _revision = *QUERIES_REVISION.read();
+    let mut queries = use_resource(move || async move {
+        // Read revision to trigger re-fetch when queries change
+        let _ = *QUERIES_REVISION.read();
+        query_store.read().load_queries()
+    });
     let mut new_query_name = use_signal(String::new);
     let mut show_save_dialog = use_signal(|| false);
     let is_dark = *IS_DARK_MODE.read();

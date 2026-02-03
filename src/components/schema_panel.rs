@@ -1,5 +1,6 @@
 use crate::components::context_menu::show_table_context_menu;
 use crate::config::RecentTablesStore;
+use crate::services::LlmSender;
 use crate::state::*;
 use dioxus::prelude::*;
 
@@ -8,6 +9,7 @@ pub fn SchemaPanel() -> Element {
     let schema = SCHEMA.read();
     let is_dark = *IS_DARK_MODE.read();
     let is_connected = matches!(*CONNECTION.read(), ConnectionState::Connected { .. });
+    let _llm_tx = use_context::<LlmSender>();
 
     let muted_text = if is_dark {
         "text-gray-600"
@@ -54,7 +56,126 @@ pub fn SchemaPanel() -> Element {
                         ViewItem { view: view.clone() }
                     }
                 }
+
+                // AI Suggestions section
+                SuggestionsSection {}
             }
+        }
+    }
+}
+
+#[component]
+fn SuggestionsSection() -> Element {
+    let suggestions = SCHEMA_SUGGESTIONS.read();
+    let schema = SCHEMA.read();
+    let llm_tx = use_context::<LlmSender>();
+    let is_dark = *IS_DARK_MODE.read();
+
+    let header_text = if is_dark {
+        "text-gray-500"
+    } else {
+        "text-gray-500"
+    };
+    let item_text = if is_dark {
+        "text-gray-400"
+    } else {
+        "text-gray-600"
+    };
+    let muted_text = if is_dark {
+        "text-gray-600"
+    } else {
+        "text-gray-400"
+    };
+
+    let Some(table_name) = suggestions.table_name.clone() else {
+        return rsx! {};
+    };
+
+    let suggestions_list: Vec<_> = suggestions.suggestions.clone();
+    let is_loading = suggestions.loading;
+
+    rsx! {
+        div {
+            class: "mt-4 pt-4 border-t",
+            class: if is_dark { "border-gray-800" } else { "border-gray-200" },
+
+            div {
+                class: "flex items-center justify-between mb-2",
+
+                h3 {
+                    class: "text-xs font-semibold {header_text} uppercase tracking-wider",
+                    "Suggested Queries"
+                }
+
+                if is_loading {
+                    div {
+                        class: "animate-spin h-3 w-3 border-2 border-blue-500 border-t-transparent rounded-full",
+                    }
+                } else {
+                    button {
+                        class: "text-xs {item_text} hover:text-blue-500 transition-colors",
+                        onclick: move |_| {
+                            if let Some(table) = schema.tables.iter().find(|t| t.name == table_name) {
+                                *SCHEMA_SUGGESTIONS.write() = SuggestionsState {
+                                    suggestions: Vec::new(),
+                                    loading: true,
+                                    table_name: Some(table_name.clone()),
+                                };
+                                let config = LLM_CONFIG.read().clone();
+                                let _ = llm_tx.send(crate::llm::LlmRequest::SuggestQueries {
+                                    table: table.clone(),
+                                    config,
+                                });
+                            }
+                        },
+                        "↻ Refresh"
+                    }
+                }
+            }
+
+            if suggestions_list.is_empty() && !is_loading {
+                div {
+                    class: "text-xs {muted_text}",
+                    "No suggestions available"
+                }
+            } else {
+                div {
+                    class: "space-y-1",
+
+                    for suggestion in suggestions_list {
+                        SuggestionButton { suggestion: suggestion.clone() }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn SuggestionButton(suggestion: crate::llm::QuerySuggestion) -> Element {
+    let is_dark = *IS_DARK_MODE.read();
+    let item_text = if is_dark {
+        "text-gray-400"
+    } else {
+        "text-gray-600"
+    };
+    let item_hover = if is_dark {
+        "hover:bg-gray-900 hover:text-white"
+    } else {
+        "hover:bg-gray-100 hover:text-gray-900"
+    };
+
+    let sql = suggestion.sql.clone();
+    let label = suggestion.label.clone();
+
+    rsx! {
+        button {
+            class: "w-full text-left px-2 py-1.5 text-xs {item_text} {item_hover} rounded transition-colors",
+            onclick: move |_| {
+                *EDITOR_CONTENT.write() = sql.clone();
+            },
+            title: "{suggestion.sql}",
+            "▸ {label}"
         }
     }
 }

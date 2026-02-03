@@ -141,13 +141,13 @@ pub fn SqlEditor() -> Element {
                             e.prevent_default();
                             execute_query();
                         }
-                        // NEW: Ctrl+D to duplicate line
+                        // Ctrl+D to duplicate line
                         else if e.data.key() == Key::Character("d".to_string()) &&
                                 e.data.modifiers().contains(keyboard_types::Modifiers::CONTROL) {
                             e.prevent_default();
                             duplicate_current_line();
                         }
-                        // NEW: Tab indentation
+                        // Tab indentation
                         else if e.data.key() == Key::Tab {
                             e.prevent_default();
                             if e.data.modifiers().contains(keyboard_types::Modifiers::SHIFT) {
