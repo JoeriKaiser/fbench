@@ -35,7 +35,8 @@ pub fn SqlEditor() -> Element {
 
     // Track both content changes AND shiki readiness
     use_effect(move || {
-        let code = EDITOR_TABS.read()
+        let code = EDITOR_TABS
+            .read()
             .active_tab()
             .map(|t| t.content.clone())
             .unwrap_or_default();
@@ -205,7 +206,8 @@ pub fn SqlEditor() -> Element {
 }
 
 fn execute_query() {
-    let content = EDITOR_TABS.read()
+    let content = EDITOR_TABS
+        .read()
         .active_tab()
         .map(|t| t.content.clone())
         .unwrap_or_default();
@@ -224,7 +226,11 @@ fn format_current_query() {
     use sqlformat::format;
 
     if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
-        let formatted = format(&tab.content, &sqlformat::QueryParams::None, sqlformat::FormatOptions::default());
+        let formatted = format(
+            &tab.content,
+            &sqlformat::QueryParams::None,
+            sqlformat::FormatOptions::default(),
+        );
         tab.content = formatted;
         tab.unsaved_changes = true;
     }
@@ -240,7 +246,8 @@ fn duplicate_current_line() {
 
 fn indent_selection() {
     if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
-        let indented: String = tab.content
+        let indented: String = tab
+            .content
             .lines()
             .map(|line| format!("    {}", line))
             .collect::<Vec<_>>()
@@ -252,7 +259,8 @@ fn indent_selection() {
 
 fn outdent_selection() {
     if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
-        let outdented: String = tab.content
+        let outdented: String = tab
+            .content
             .lines()
             .map(|line| {
                 if line.starts_with("    ") {

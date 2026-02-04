@@ -875,9 +875,14 @@ impl DbWorker {
                     .map(|row| {
                         let cols: Vec<String> = (0..row.columns().len())
                             .filter_map(|i| {
-                                row.try_get::<String, _>(i).ok()
-                                    .or_else(|| row.try_get::<i64, _>(i).ok().map(|v| v.to_string()))
-                                    .or_else(|| row.try_get::<f64, _>(i).ok().map(|v| v.to_string()))
+                                row.try_get::<String, _>(i)
+                                    .ok()
+                                    .or_else(|| {
+                                        row.try_get::<i64, _>(i).ok().map(|v| v.to_string())
+                                    })
+                                    .or_else(|| {
+                                        row.try_get::<f64, _>(i).ok().map(|v| v.to_string())
+                                    })
                             })
                             .collect();
                         cols.join("\t")
