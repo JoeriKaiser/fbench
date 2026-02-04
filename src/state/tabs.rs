@@ -1,3 +1,4 @@
+use crate::config::DraftStore;
 use dioxus::prelude::*;
 use uuid::Uuid;
 
@@ -41,6 +42,27 @@ pub struct TabState {
 
 impl TabState {
     pub fn new() -> Self {
+        // Try to load from draft store first
+        let store = DraftStore::new();
+        if let Some(draft) = store.load_tabs() {
+            let tabs: Vec<QueryTab> = draft
+                .tabs
+                .iter()
+                .map(|d| QueryTab::new(d.title.clone()).with_content(d.content.clone()))
+                .collect();
+
+            let active_id = tabs
+                .get(draft.active_tab_index)
+                .or_else(|| tabs.first())
+                .map(|t| t.id.clone());
+
+            return Self {
+                tabs,
+                active_tab_id: active_id,
+            };
+        }
+
+        // Default: single tab with sample query
         let default_tab = QueryTab::new("Query 1").with_content("SELECT * FROM users LIMIT 10;");
         let id = default_tab.id.clone();
         Self {

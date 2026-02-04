@@ -52,14 +52,13 @@ pub fn SqlEditor() -> Element {
 
     // Auto-save draft every 2 seconds when content changes
     use_effect(move || {
-        let content = EDITOR_TABS.read()
-            .active_tab()
-            .map(|t| t.content.clone())
-            .unwrap_or_default();
+        let tabs = EDITOR_TABS.read();
+        let tabs_vec = tabs.tabs.clone();
+        let active_id = tabs.active_tab_id.clone();
         spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
             let store = DraftStore::new();
-            let _ = store.save(&content);
+            let _ = store.save_tabs(&tabs_vec, active_id.as_deref());
         });
     });
 
