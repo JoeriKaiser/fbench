@@ -2,8 +2,10 @@ use crate::config::DraftStore;
 use crate::db::QueryResult;
 use dioxus::prelude::*;
 
-// Load draft content or use default
-fn get_initial_content() -> String {
+// DEPRECATED: Use EDITOR_TABS instead for multi-tab support
+// Keeping temporarily for backward compatibility during migration
+pub static EDITOR_CONTENT: GlobalSignal<String> = Signal::global(|| {
+    // Load from draft store
     let store = DraftStore::new();
     let draft = store.load();
     if draft.content.is_empty() {
@@ -11,9 +13,7 @@ fn get_initial_content() -> String {
     } else {
         draft.content
     }
-}
-
-pub static EDITOR_CONTENT: GlobalSignal<String> = Signal::global(|| get_initial_content());
+});
 
 pub static QUERY_RESULT: GlobalSignal<Option<QueryResult>> = Signal::global(|| None);
 
