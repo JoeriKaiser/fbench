@@ -55,6 +55,7 @@ impl DbWorker {
                         }
                         DbRequest::TestConnection(config) => self.test_connection(config).await,
                         DbRequest::Execute(sql) => self.execute(&sql).await,
+                        DbRequest::Explain(sql) => self.explain(&sql).await,
                         DbRequest::ListTables => self.list_tables().await,
                         DbRequest::FetchSchema => self.fetch_schema().await,
                         DbRequest::FetchTableDetails(table) => self.fetch_table_details(&table).await,
@@ -165,7 +166,7 @@ impl DbWorker {
                 };
                 DbResponse::Connected(db_type)
             }
-            Err(e) => DbResponse::Error(e.to_string()),
+            Err(e) => DbResponse::ConnectionFailed(e.to_string()),
         }
     }
 
@@ -828,6 +829,74 @@ impl DbWorker {
                     return DbResponse::ConnectionLost;
                 }
                 DbResponse::Error(error_str)
+            }
+        }
+    }
+
+    async fn explain(&self, sql: &str) -> DbResponse {
+        match (&self.pool, self.db_type) {
+            (Some(DbPool::Postgres(pool)), Some(DatabaseType::PostgreSQL)) => {
+                self.explain_postgres(pool, sql).await
+            }
+            (Some(DbPool::MySQL(pool)), Some(DatabaseType::MySQL)) => {
+                self.explain_mysql(pool, sql).await
+            }
+            _ => DbResponse::Error("Not connected".into()),
+        }
+    }
+
+    async fn explain_postgres(&self, pool: &PgPool, sql: &str) -> DbResponse {
+        let explain_sql = format!("EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) {}", sql);
+        match sqlx::query(&explain_sql).fetch_all(pool).await {
+            Ok(rows) => {
+                let plan: String = rows
+                    .iter()
+                    .filter_map(|row| row.try_get::<String, _>("QUERY PLAN").ok())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                DbResponse::ExplainResult(plan)
+            }
+            Err(e) => {
+                let error_str = e.to_string();
+                if Self::is_connection_error(&error_str) {
+                    return DbResponse::ConnectionLost;
+                }
+                DbResponse::Error(format!("Explain failed: {}", e))
+            }
+        }
+    }
+
+    async fn explain_mysql(&self, pool: &MySqlPool, sql: &str) -> DbResponse {
+        let explain_sql = format!("EXPLAIN ANALYZE {}", sql);
+        match sqlx::query(&explain_sql).fetch_all(pool).await {
+            Ok(rows) => {
+                let plan: String = rows
+                    .iter()
+                    .map(|row| {
+                        let cols: Vec<String> = (0..row.columns().len())
+                            .filter_map(|i| {
+                                row.try_get::<String, _>(i)
+                                    .ok()
+                                    .or_else(|| {
+                                        row.try_get::<i64, _>(i).ok().map(|v| v.to_string())
+                                    })
+                                    .or_else(|| {
+                                        row.try_get::<f64, _>(i).ok().map(|v| v.to_string())
+                                    })
+                            })
+                            .collect();
+                        cols.join("\t")
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                DbResponse::ExplainResult(plan)
+            }
+            Err(e) => {
+                let error_str = e.to_string();
+                if Self::is_connection_error(&error_str) {
+                    return DbResponse::ConnectionLost;
+                }
+                DbResponse::Error(format!("Explain failed: {}", e))
             }
         }
     }

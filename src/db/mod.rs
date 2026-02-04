@@ -86,6 +86,7 @@ pub enum DbRequest {
     Connect(ConnectionConfig),
     TestConnection(ConnectionConfig),
     Execute(String),
+    Explain(String),
     ListTables,
     FetchSchema,
     FetchTableDetails(String),
@@ -95,8 +96,10 @@ pub enum DbRequest {
 #[derive(Debug)]
 pub enum DbResponse {
     Connected(DatabaseType),
+    ConnectionFailed(String),
     TestResult(Result<(), String>),
     QueryResult(QueryResult),
+    ExplainResult(String),
     Schema(SchemaInfo),
     TableDetails(TableInfo),
     Error(String),

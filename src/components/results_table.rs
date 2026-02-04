@@ -3,8 +3,11 @@ use dioxus::prelude::*;
 
 #[component]
 pub fn ResultsTable() -> Element {
-    let result = QUERY_RESULT.read();
-    let error = LAST_ERROR.read();
+    let tabs = EDITOR_TABS.read();
+    let active_tab = tabs.active_tab();
+    let result = active_tab.and_then(|t| t.result.clone());
+    let error = active_tab.and_then(|t| t.last_error.clone());
+    let exec_time = active_tab.and_then(|t| t.execution_time_ms);
     let is_dark = *IS_DARK_MODE.read();
 
     // Theme-aware classes
@@ -43,18 +46,31 @@ pub fn ResultsTable() -> Element {
             div {
                 class: "h-8 {header_bg} border-b {header_border} flex items-center px-3 justify-between",
 
-                if let Some(error) = error.as_ref() {
+                if let Some(error) = error {
                     span { class: "text-red-500 text-sm", "{error}" }
-                } else if let Some(result) = result.as_ref() {
+                } else if let Some(ref result) = result {
                     span { class: "{header_text} text-sm", "{result.rows.len()} rows" }
                 } else {
                     span { class: "{muted_text} text-sm", "No results" }
                 }
 
-                if let Some(exec_time) = EXECUTION_TIME_MS.read().as_ref() {
-                    span {
-                        class: "text-xs {muted_text}",
-                        "{exec_time}ms"
+                div {
+                    class: "flex items-center space-x-3",
+
+                    if let Some(exec_time) = exec_time {
+                        span {
+                            class: "text-xs {muted_text}",
+                            "{exec_time}ms"
+                        }
+                    }
+
+                    // Explain button (only when we have results)
+                    if result.is_some() {
+                        button {
+                            class: "text-xs px-2 py-1 rounded {header_bg} {header_text} hover:opacity-80",
+                            onclick: move |_| show_execution_plan(),
+                            "Explain"
+                        }
                     }
                 }
             }
@@ -62,14 +78,14 @@ pub fn ResultsTable() -> Element {
             div {
                 class: "flex-1 overflow-auto",
 
-                if let Some(result) = result.as_ref() {
+                if let Some(result) = result {
                     table {
                         class: "w-full text-sm text-left",
 
                         thead {
                             class: "{header_bg} {header_text} sticky top-0",
                             tr {
-                                for col in &result.columns {
+                                for col in result.columns.clone() {
                                     th {
                                         class: "px-4 py-2 font-medium border-b {header_border}",
                                         "{col}"
@@ -80,13 +96,22 @@ pub fn ResultsTable() -> Element {
 
                         tbody {
                             class: "{table_divider}",
-                            for (idx, row) in result.rows.iter().enumerate() {
+                            for (idx, row) in result.rows.clone().into_iter().enumerate() {
                                 tr {
                                     class: if idx % 2 == 0 { "" } else { row_alt },
-                                    for cell in row {
+                                    for cell in row.clone() {
                                         td {
-                                            class: "px-4 py-2 {cell_text} font-mono",
-                                            "{cell}"
+                                            class: "px-4 py-2 {cell_text} font-mono cursor-pointer hover:bg-blue-500/10",
+                                            onclick: move |_| view_cell_content(cell.clone()),
+                                            title: "Click to view full content",
+                                            {
+                                                let display = if cell.len() > 100 {
+                                                    format!("{}...", &cell[..100])
+                                                } else {
+                                                    cell.clone()
+                                                };
+                                                "{display}"
+                                            }
                                         }
                                     }
                                 }
@@ -97,4 +122,14 @@ pub fn ResultsTable() -> Element {
             }
         }
     }
+}
+
+fn show_execution_plan() {
+    use crate::components::execution_plan::request_execution_plan;
+    request_execution_plan();
+}
+
+fn view_cell_content(content: String) {
+    *JSON_VIEWER_CONTENT.write() = content;
+    *SHOW_JSON_VIEWER.write() = true;
 }

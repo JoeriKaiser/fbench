@@ -40,7 +40,15 @@ async fn handle_db_responses(
                     db_type: db_type_enum,
                     db_name: String::new(),
                 };
+                // Close dialog and reset test status on successful connection
+                *SHOW_CONNECTION_DIALOG.write() = false;
+                *TEST_CONNECTION_STATUS.write() = TestConnectionStatus::Idle;
                 let _ = db_tx.send(crate::db::DbRequest::FetchSchema);
+            }
+            DbResponse::ConnectionFailed(e) => {
+                *CONNECTION.write() = ConnectionState::Error(e.clone());
+                // Show error in test status area so user sees it
+                *TEST_CONNECTION_STATUS.write() = TestConnectionStatus::Failed(e);
             }
             DbResponse::Schema(schema) => *SCHEMA.write() = schema,
             DbResponse::QueryResult(result) => {
@@ -55,12 +63,25 @@ async fn handle_db_responses(
                 let _ = store.clear();
                 // Notify UI that history changed
                 *HISTORY_REVISION.write() += 1;
+                // Update active tab with result
+                if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                    tab.result = Some(result.clone());
+                    tab.last_error = None;
+                    tab.execution_time_ms = Some(result.execution_time_ms);
+                    tab.unsaved_changes = false;
+                }
+                // Also update global for backward compatibility during migration
                 *QUERY_RESULT.write() = Some(result.clone());
                 *EXECUTION_TIME_MS.write() = Some(result.execution_time_ms);
                 *ROW_COUNT.write() = Some(result.rows.len());
                 *LAST_ERROR.write() = None;
             }
             DbResponse::Error(e) => {
+                // Update active tab with error
+                if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                    tab.last_error = Some(e.clone());
+                    tab.result = None;
+                }
                 *LAST_ERROR.write() = Some(e);
                 *QUERY_RESULT.write() = None;
             }
@@ -77,6 +98,12 @@ async fn handle_db_responses(
                     Ok(()) => TestConnectionStatus::Success,
                     Err(e) => TestConnectionStatus::Failed(e),
                 };
+            }
+            DbResponse::ExplainResult(plan) => {
+                if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                    tab.execution_plan = Some(plan);
+                }
+                *SHOW_EXECUTION_PLAN.write() = true;
             }
             _ => {}
         }

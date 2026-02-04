@@ -1,4 +1,4 @@
-use crate::components::TemplateSelector;
+use crate::components::{TabBar, TemplateSelector};
 use crate::config::DraftStore;
 use crate::hooks::use_shiki::use_shiki;
 use crate::services::DbSender;
@@ -25,14 +25,24 @@ pub fn SqlEditor() -> Element {
         "text-gray-400"
     };
 
+    // Get active tab content
+    let content = {
+        let tabs = EDITOR_TABS.read();
+        tabs.active_tab()
+            .map(|t| t.content.clone())
+            .unwrap_or_default()
+    };
+
     // Track both content changes AND shiki readiness
     use_effect(move || {
-        // Read both signals to track them
-        let code = EDITOR_CONTENT.read().clone();
+        let code = EDITOR_TABS
+            .read()
+            .active_tab()
+            .map(|t| t.content.clone())
+            .unwrap_or_default();
         let is_ready = shiki.is_ready();
         let shiki = shiki;
         spawn(async move {
-            // Only highlight if shiki is ready
             if is_ready {
                 if let Some(html) = shiki.highlight(&code).await {
                     highlighted.set(html);
@@ -43,17 +53,22 @@ pub fn SqlEditor() -> Element {
 
     // Auto-save draft every 2 seconds when content changes
     use_effect(move || {
-        let content = EDITOR_CONTENT.read().clone();
+        let tabs = EDITOR_TABS.read();
+        let tabs_vec = tabs.tabs.clone();
+        let active_id = tabs.active_tab_id.clone();
         spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
             let store = DraftStore::new();
-            let _ = store.save(&content);
+            let _ = store.save_tabs(&tabs_vec, active_id.as_deref());
         });
     });
 
     rsx! {
         div {
             class: "flex flex-col h-full",
+
+            // Tab bar
+            TabBar {}
 
             div {
                 class: "h-10 {toolbar_bg} border-b {toolbar_border} flex items-center px-3 space-x-3",
@@ -106,6 +121,30 @@ pub fn SqlEditor() -> Element {
                     span { "Run Statement" }
                 }
 
+                // Format button
+                button {
+                    class: "px-3 py-1.5 text-sm rounded flex items-center space-x-1.5 transition-colors",
+                    class: if is_dark {
+                        "bg-gray-900 hover:bg-gray-800 text-gray-300"
+                    } else {
+                        "bg-gray-100 hover:bg-gray-200 text-gray-700"
+                    },
+                    onclick: move |_| format_current_query(),
+                    svg {
+                        class: "w-3.5 h-3.5",
+                        fill: "none",
+                        stroke: "currentColor",
+                        view_box: "0 0 24 24",
+                        path {
+                            stroke_linecap: "round",
+                            stroke_linejoin: "round",
+                            stroke_width: "2",
+                            d: "M4 6h16M4 12h16m-7 6h7",
+                        }
+                    }
+                    span { "Format" }
+                }
+
                 div { class: "flex-1" }
 
                 TemplateSelector {}
@@ -125,29 +164,30 @@ pub fn SqlEditor() -> Element {
                     dangerous_inner_html: "{highlighted}",
                 }
 
-                // Textarea for input (on top) - transparent text when Shiki ready
+                // Textarea for input (on top)
                 textarea {
                     class: if shiki.is_ready() {
                         "absolute inset-0 w-full h-full p-4 bg-transparent text-transparent caret-blue-500 font-mono text-sm leading-6 resize-none focus:outline-none border-0"
                     } else {
                         "absolute inset-0 w-full h-full p-4 bg-transparent text-gray-700 caret-blue-500 font-mono text-sm leading-6 resize-none focus:outline-none border-0"
                     },
-                    value: "{EDITOR_CONTENT}",
+                    value: "{content}",
                     oninput: move |e| {
-                        *EDITOR_CONTENT.write() = e.value().clone();
+                        if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                            tab.content = e.value().clone();
+                            tab.unsaved_changes = true;
+                        }
                     },
                     onkeydown: move |e| {
                         if e.data.key() == Key::Enter && e.data.modifiers().contains(keyboard_types::Modifiers::CONTROL) {
                             e.prevent_default();
                             execute_query();
                         }
-                        // Ctrl+D to duplicate line
                         else if e.data.key() == Key::Character("d".to_string()) &&
                                 e.data.modifiers().contains(keyboard_types::Modifiers::CONTROL) {
                             e.prevent_default();
                             duplicate_current_line();
                         }
-                        // Tab indentation
                         else if e.data.key() == Key::Tab {
                             e.prevent_default();
                             if e.data.modifiers().contains(keyboard_types::Modifiers::SHIFT) {
@@ -166,9 +206,15 @@ pub fn SqlEditor() -> Element {
 }
 
 fn execute_query() {
-    let content = EDITOR_CONTENT.read();
-    if let Some(tx) = try_use_context::<DbSender>() {
-        let _ = tx.send(crate::db::DbRequest::Execute(content.clone()));
+    let content = EDITOR_TABS
+        .read()
+        .active_tab()
+        .map(|t| t.content.clone())
+        .unwrap_or_default();
+    if !content.is_empty() {
+        if let Some(tx) = try_use_context::<DbSender>() {
+            let _ = tx.send(crate::db::DbRequest::Execute(content));
+        }
     }
 }
 
@@ -176,38 +222,58 @@ fn execute_statement() {
     execute_query();
 }
 
+fn format_current_query() {
+    use sqlformat::format;
+
+    if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+        let formatted = format(
+            &tab.content,
+            &sqlformat::QueryParams::None,
+            sqlformat::FormatOptions::default(),
+        );
+        tab.content = formatted;
+        tab.unsaved_changes = true;
+    }
+}
+
 fn duplicate_current_line() {
-    let content = EDITOR_CONTENT.read().clone();
-    // This is a simplified version - we'd need access to cursor position
-    // for proper line duplication. For now, duplicate entire content.
-    *EDITOR_CONTENT.write() = format!("{}\n{}", content, content);
+    if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+        let content = tab.content.clone();
+        tab.content = format!("{}\n{}", content, content);
+        tab.unsaved_changes = true;
+    }
 }
 
 fn indent_selection() {
-    let content = EDITOR_CONTENT.read().clone();
-    // Simple implementation: add 4 spaces at start of each line
-    let indented: String = content
-        .lines()
-        .map(|line| format!("    {}", line))
-        .collect::<Vec<_>>()
-        .join("\n");
-    *EDITOR_CONTENT.write() = indented;
+    if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+        let indented: String = tab
+            .content
+            .lines()
+            .map(|line| format!("    {}", line))
+            .collect::<Vec<_>>()
+            .join("\n");
+        tab.content = indented;
+        tab.unsaved_changes = true;
+    }
 }
 
 fn outdent_selection() {
-    let content = EDITOR_CONTENT.read().clone();
-    let outdented: String = content
-        .lines()
-        .map(|line| {
-            if line.starts_with("    ") {
-                line[4..].to_string()
-            } else if line.starts_with('\t') {
-                line[1..].to_string()
-            } else {
-                line.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    *EDITOR_CONTENT.write() = outdented;
+    if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+        let outdented: String = tab
+            .content
+            .lines()
+            .map(|line| {
+                if line.starts_with("    ") {
+                    line[4..].to_string()
+                } else if line.starts_with('\t') {
+                    line[1..].to_string()
+                } else {
+                    line.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        tab.content = outdented;
+        tab.unsaved_changes = true;
+    }
 }

@@ -43,6 +43,9 @@ fn ConnectionDialogContent() -> Element {
     let mut save_password = use_signal(|| false);
     let mut connection_name = use_signal(String::new);
 
+    // Track the selected saved connection name for the dropdown
+    let mut selected_saved_connection = use_signal(String::new);
+
     // Theme-aware classes
     let _bg_class = if is_dark { "bg-black" } else { "bg-white" };
     let text_class = if is_dark {
@@ -103,6 +106,7 @@ fn ConnectionDialogContent() -> Element {
                 database.set(conn.database.clone());
                 schema.set(conn.schema.clone());
                 connection_name.set(conn.name.clone());
+                selected_saved_connection.set(conn.name.clone());
 
                 // Load password from keyring if not saved
                 if conn.save_password {
@@ -149,6 +153,7 @@ fn ConnectionDialogContent() -> Element {
         };
 
         *CONNECTION.write() = ConnectionState::Connecting;
+        *TEST_CONNECTION_STATUS.write() = TestConnectionStatus::Connecting;
 
         if let Some(tx) = try_use_context::<DbSender>() {
             let _ = tx.send(crate::db::DbRequest::Connect(config));
@@ -160,8 +165,7 @@ fn ConnectionDialogContent() -> Element {
             let _ = store.read().set_last_used(&name);
         }
 
-        *TEST_CONNECTION_STATUS.write() = TestConnectionStatus::Idle;
-        *SHOW_CONNECTION_DIALOG.write() = false;
+        // Dialog will close automatically when connection succeeds (handled in services)
     };
 
     let mut save_and_connect = move || {
@@ -188,6 +192,7 @@ fn ConnectionDialogContent() -> Element {
         };
 
         *CONNECTION.write() = ConnectionState::Connecting;
+        *TEST_CONNECTION_STATUS.write() = TestConnectionStatus::Connecting;
 
         if let Some(tx) = try_use_context::<DbSender>() {
             let _ = tx.send(crate::db::DbRequest::Connect(config));
@@ -234,8 +239,7 @@ fn ConnectionDialogContent() -> Element {
         // Refresh saved connections list
         saved_connections.set(conns);
 
-        *TEST_CONNECTION_STATUS.write() = TestConnectionStatus::Idle;
-        *SHOW_CONNECTION_DIALOG.write() = false;
+        // Dialog will close automatically when connection succeeds (handled in services)
     };
 
     let test_connection = move || {
@@ -280,8 +284,10 @@ fn ConnectionDialogContent() -> Element {
                     }
                     select {
                         class: "w-full px-3 py-2 border rounded text-sm focus:outline-none {select_class}",
+                        value: "{selected_saved_connection}",
                         onchange: move |e| {
                             let value = e.value();
+                            selected_saved_connection.set(value.clone());
                             if let Some(conn) = saved_connections.read().iter().find(|c| c.name == value) {
                                 db_type.set(conn.db_type);
                                 host.set(conn.host.clone());
@@ -548,6 +554,9 @@ fn TestStatusMessage() -> Element {
             match status {
                 TestConnectionStatus::Testing => rsx! {
                     span { class: "text-yellow-500", "Testing connection..." }
+                },
+                TestConnectionStatus::Connecting => rsx! {
+                    span { class: "text-yellow-500", "Connecting..." }
                 },
                 TestConnectionStatus::Success => rsx! {
                     span { class: "text-green-500", "Connection successful!" }
