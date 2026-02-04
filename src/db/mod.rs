@@ -95,6 +95,7 @@ pub enum DbRequest {
 #[derive(Debug)]
 pub enum DbResponse {
     Connected(DatabaseType),
+    ConnectionFailed(String),
     TestResult(Result<(), String>),
     QueryResult(QueryResult),
     Schema(SchemaInfo),

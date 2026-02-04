@@ -44,20 +44,10 @@ pub fn LlmPanel() -> Element {
     } else {
         "text-gray-400"
     };
-    let select_bg = if is_dark {
-        "bg-gray-800"
+    let select_class = if is_dark {
+        "bg-black border-gray-800 text-white focus:border-white"
     } else {
-        "bg-gray-100"
-    };
-    let select_border = if is_dark {
-        "border-gray-600"
-    } else {
-        "border-gray-300"
-    };
-    let select_text = if is_dark {
-        "text-gray-200"
-    } else {
-        "text-gray-700"
+        "bg-white border-gray-300 text-gray-900 focus:border-blue-500"
     };
 
     let selected_preset = *SELECTED_PRESET_INDEX.read();
@@ -122,7 +112,7 @@ pub fn LlmPanel() -> Element {
 
                 // Preset selector
                 select {
-                    class: "px-3 py-2 text-sm rounded border {select_bg} {select_border} {select_text} focus:outline-none focus:ring-2 focus:ring-blue-500",
+                    class: "px-3 py-2 text-sm rounded border {select_class} focus:outline-none appearance-none",
                     value: "{selected_preset}",
                     disabled: is_generating || !is_connected,
                     onchange: move |e| {
@@ -135,19 +125,21 @@ pub fn LlmPanel() -> Element {
                     },
                     for (index, preset) in LLM_PRESETS.iter().enumerate() {
                         option {
+                            class: if is_dark { "bg-black text-white" } else { "bg-white text-gray-900" },
                             value: "{index}",
+                            selected: selected_preset == index,
                             "{preset.name}"
                         }
                     }
                 }
 
-                // Prompt input
-                input {
-                    class: "flex-1 px-3 py-2 text-sm rounded border {input_bg} {input_border} {input_text} focus:outline-none focus:ring-2 focus:ring-blue-500",
-                    r#type: "text",
+                // Prompt textarea
+                textarea {
+                    class: "flex-1 px-3 py-2 text-sm rounded border {input_bg} {input_border} {input_text} focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none",
                     placeholder: "Describe the query you want...",
-                    value: "{prompt}",
+                    rows: 1,
                     disabled: is_generating || !is_connected,
+                    value: "{prompt}",
                     oninput: move |e| {
                         *LLM_PROMPT.write() = e.value().clone();
                         // If user types, switch to "Custom" preset

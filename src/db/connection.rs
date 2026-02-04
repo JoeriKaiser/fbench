@@ -165,7 +165,7 @@ impl DbWorker {
                 };
                 DbResponse::Connected(db_type)
             }
-            Err(e) => DbResponse::Error(e.to_string()),
+            Err(e) => DbResponse::ConnectionFailed(e.to_string()),
         }
     }
 

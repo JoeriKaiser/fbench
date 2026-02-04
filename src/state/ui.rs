@@ -22,6 +22,7 @@ pub enum TestConnectionStatus {
     #[default]
     Idle,
     Testing,
+    Connecting,
     Success,
     Failed(String),
 }

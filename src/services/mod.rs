@@ -40,7 +40,15 @@ async fn handle_db_responses(
                     db_type: db_type_enum,
                     db_name: String::new(),
                 };
+                // Close dialog and reset test status on successful connection
+                *SHOW_CONNECTION_DIALOG.write() = false;
+                *TEST_CONNECTION_STATUS.write() = TestConnectionStatus::Idle;
                 let _ = db_tx.send(crate::db::DbRequest::FetchSchema);
+            }
+            DbResponse::ConnectionFailed(e) => {
+                *CONNECTION.write() = ConnectionState::Error(e.clone());
+                // Show error in test status area so user sees it
+                *TEST_CONNECTION_STATUS.write() = TestConnectionStatus::Failed(e);
             }
             DbResponse::Schema(schema) => *SCHEMA.write() = schema,
             DbResponse::QueryResult(result) => {
