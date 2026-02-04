@@ -63,12 +63,25 @@ async fn handle_db_responses(
                 let _ = store.clear();
                 // Notify UI that history changed
                 *HISTORY_REVISION.write() += 1;
+                // Update active tab with result
+                if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                    tab.result = Some(result.clone());
+                    tab.last_error = None;
+                    tab.execution_time_ms = Some(result.execution_time_ms);
+                    tab.unsaved_changes = false;
+                }
+                // Also update global for backward compatibility during migration
                 *QUERY_RESULT.write() = Some(result.clone());
                 *EXECUTION_TIME_MS.write() = Some(result.execution_time_ms);
                 *ROW_COUNT.write() = Some(result.rows.len());
                 *LAST_ERROR.write() = None;
             }
             DbResponse::Error(e) => {
+                // Update active tab with error
+                if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                    tab.last_error = Some(e.clone());
+                    tab.result = None;
+                }
                 *LAST_ERROR.write() = Some(e);
                 *QUERY_RESULT.write() = None;
             }
