@@ -105,6 +105,40 @@ async fn handle_db_responses(
                 }
                 *SHOW_EXECUTION_PLAN.write() = true;
             }
+            DbResponse::MutationResult { affected_rows } => {
+                tracing::info!("Mutation: {} rows affected", affected_rows);
+                // Re-execute the last query to refresh results
+                if let Some(tab) = EDITOR_TABS.read().active_tab() {
+                    if let Some(result) = &tab.result {
+                        let sql = result.sql.clone();
+                        let _ = db_tx.send(crate::db::DbRequest::Execute(sql));
+                    }
+                }
+            }
+            DbResponse::BatchResult {
+                affected_rows,
+                statement_count,
+            } => {
+                tracing::info!(
+                    "Batch: {} statements, {} rows affected",
+                    statement_count,
+                    affected_rows
+                );
+                // Re-execute to refresh
+                if let Some(tab) = EDITOR_TABS.read().active_tab() {
+                    if let Some(result) = &tab.result {
+                        let sql = result.sql.clone();
+                        let _ = db_tx.send(crate::db::DbRequest::Execute(sql));
+                    }
+                }
+            }
+            DbResponse::ImportProgress { inserted, total } => {
+                *IMPORT_PROGRESS.write() = Some((inserted, total));
+            }
+            DbResponse::ImportComplete { total } => {
+                *IMPORT_PROGRESS.write() = None;
+                tracing::info!("Import complete: {} rows", total);
+            }
             _ => {}
         }
     }
@@ -118,7 +152,10 @@ async fn handle_llm_responses(mut rx: mpsc::UnboundedReceiver<crate::llm::LlmRes
         match response {
             LlmResponse::Generated(sql) => {
                 // Replace editor content with generated SQL
-                *EDITOR_CONTENT.write() = sql;
+                if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                    tab.content = sql;
+                    tab.unsaved_changes = true;
+                }
                 *LLM_GENERATING.write() = false;
                 *LLM_PROMPT.write() = String::new();
                 *LLM_STATUS.write() = LlmStatus::Success("Query generated successfully".into());

@@ -85,17 +85,16 @@ pub fn QuickSwitcher() -> Element {
         Key::Enter => {
             let idx = *selected_index.read();
             if let Some(item) = items.read().get(idx) {
-                match item {
+                let sql = match item {
                     SwitcherItem::Table { name } => {
-                        let sql = format!("SELECT * FROM \"{}\" LIMIT 100;", name);
-                        *EDITOR_CONTENT.write() = sql;
+                        format!("SELECT * FROM \"{}\" LIMIT 100;", name)
                     }
-                    SwitcherItem::Query { sql, .. } => {
-                        *EDITOR_CONTENT.write() = sql.clone();
-                    }
-                    SwitcherItem::History { sql, .. } => {
-                        *EDITOR_CONTENT.write() = sql.clone();
-                    }
+                    SwitcherItem::Query { sql, .. } => sql.clone(),
+                    SwitcherItem::History { sql, .. } => sql.clone(),
+                };
+                if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                    tab.content = sql;
+                    tab.unsaved_changes = true;
                 }
                 *SHOW_QUICK_SWITCHER.write() = false;
                 search_query.set(String::new());
@@ -172,17 +171,16 @@ pub fn QuickSwitcher() -> Element {
                                         class: "w-full px-4 py-3 text-left flex items-center space-x-3 transition-colors",
                                         class: if is_selected { "{selected_bg}" } else { "hover:bg-gray-800" },
                                         onclick: move |_| {
-                                            match &item {
+                                            let sql = match &item {
                                                 SwitcherItem::Table { name } => {
-                                                    let sql = format!("SELECT * FROM \"{}\" LIMIT 100;", name);
-                                                    *EDITOR_CONTENT.write() = sql;
+                                                    format!("SELECT * FROM \"{}\" LIMIT 100;", name)
                                                 }
-                                                SwitcherItem::Query { sql, .. } => {
-                                                    *EDITOR_CONTENT.write() = sql.clone();
-                                                }
-                                                SwitcherItem::History { sql, .. } => {
-                                                    *EDITOR_CONTENT.write() = sql.clone();
-                                                }
+                                                SwitcherItem::Query { sql, .. } => sql.clone(),
+                                                SwitcherItem::History { sql, .. } => sql.clone(),
+                                            };
+                                            if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                                                tab.content = sql;
+                                                tab.unsaved_changes = true;
                                             }
                                             *SHOW_QUICK_SWITCHER.write() = false;
                                             search_query.set(String::new());

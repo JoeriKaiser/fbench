@@ -172,7 +172,10 @@ fn SuggestionButton(suggestion: crate::llm::QuerySuggestion) -> Element {
         button {
             class: "w-full text-left px-2 py-1.5 text-xs {item_text} {item_hover} rounded transition-colors",
             onclick: move |_| {
-                *EDITOR_CONTENT.write() = sql.clone();
+                if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                    tab.content = sql.clone();
+                    tab.unsaved_changes = true;
+                }
             },
             title: "{suggestion.sql}",
             "▸ {label}"
@@ -326,7 +329,10 @@ fn TableItem(table: crate::db::TableInfo) -> Element {
                         class: "mt-2 px-2 py-1 text-xs {item_text} hover:text-blue-500 text-left transition-colors",
                         onclick: move |_| {
                             let sql = format!("SELECT * FROM \"{}\" LIMIT 100;", table_name_for_select);
-                            *EDITOR_CONTENT.write() = sql;
+                            if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                                tab.content = sql;
+                                tab.unsaved_changes = true;
+                            }
                             // Track table access when generating SELECT
                             let store = RecentTablesStore::new();
                             let _ = store.add(&table_name_for_select);
@@ -365,7 +371,10 @@ fn ViewItem(view: String) -> Element {
                 class: "w-full flex items-center space-x-2 px-2 py-1.5 rounded text-sm {item_text} {item_hover} text-left transition-colors",
                 onclick: move |_| {
                     let sql = format!("SELECT * FROM \"{}\" LIMIT 100;", view);
-                    *EDITOR_CONTENT.write() = sql;
+                    if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                        tab.content = sql;
+                        tab.unsaved_changes = true;
+                    }
                 },
 
                 svg {

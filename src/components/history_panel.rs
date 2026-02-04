@@ -1,5 +1,5 @@
 use crate::config::{HistoryEntry, QueryHistory};
-use crate::state::{EDITOR_CONTENT, HISTORY_REVISION, IS_DARK_MODE};
+use crate::state::{EDITOR_TABS, HISTORY_REVISION, IS_DARK_MODE};
 use dioxus::prelude::*;
 
 #[component]
@@ -125,7 +125,10 @@ pub fn HistoryPanel() -> Element {
                                 button {
                                     class: "w-full text-left px-2 py-2 rounded {item_hover} group transition-colors",
                                     onclick: move |_| {
-                                        *EDITOR_CONTENT.write() = entry_sql.clone();
+                                        if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                                            tab.content = entry_sql.clone();
+                                            tab.unsaved_changes = true;
+                                        }
                                     },
 
                                     div {

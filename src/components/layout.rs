@@ -233,6 +233,8 @@ pub fn AppLayout() -> Element {
         JsonViewer {}
 
         ExecutionPlanDialog {}
+
+        ImportDialog {}
     }
 }
 

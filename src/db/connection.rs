@@ -1,7 +1,7 @@
 use sqlx::{
     mysql::{MySqlPool, MySqlRow},
     postgres::{PgPool, PgPoolOptions, PgRow},
-    Column, Row, ValueRef,
+    Column, Row, TypeInfo, ValueRef,
 };
 use tokio::sync::mpsc;
 use tokio::time::{interval, Duration};
@@ -23,6 +23,7 @@ pub struct DbWorker {
     pool: Option<DbPool>,
     db_type: Option<DatabaseType>,
     schema: Option<String>,
+    cached_schema: Option<SchemaInfo>,
     request_rx: mpsc::UnboundedReceiver<DbRequest>,
     response_tx: mpsc::UnboundedSender<DbResponse>,
 }
@@ -36,6 +37,7 @@ impl DbWorker {
             pool: None,
             db_type: None,
             schema: None,
+            cached_schema: None,
             request_rx,
             response_tx,
         }
@@ -62,6 +64,16 @@ impl DbWorker {
                         DbRequest::Disconnect => {
                             connection_lost_notified = false;
                             self.disconnect().await
+                        }
+                        DbRequest::ExecuteMutation(sql) => {
+                            self.execute_mutation(&sql).await
+                        }
+                        DbRequest::ExecuteBatch(statements) => {
+                            self.execute_batch(&statements).await
+                        }
+                        DbRequest::ImportData { table, columns, rows, batch_size } => {
+                            self.execute_import(&table, &columns, &rows, batch_size).await;
+                            continue; // import sends its own responses
                         }
                     };
 
@@ -170,8 +182,8 @@ impl DbWorker {
         }
     }
 
-    async fn fetch_schema(&self) -> DbResponse {
-        match (&self.pool, self.db_type) {
+    async fn fetch_schema(&mut self) -> DbResponse {
+        let resp = match (&self.pool, self.db_type) {
             (Some(DbPool::Postgres(pool)), Some(DatabaseType::PostgreSQL)) => {
                 self.fetch_schema_postgres(pool).await
             }
@@ -179,7 +191,11 @@ impl DbWorker {
                 self.fetch_schema_mysql(pool).await
             }
             _ => DbResponse::Error("Not connected".into()),
+        };
+        if let DbResponse::Schema(ref schema) = resp {
+            self.cached_schema = Some(schema.clone());
         }
+        resp
     }
 
     async fn fetch_schema_postgres(&self, pool: &PgPool) -> DbResponse {
@@ -767,6 +783,16 @@ impl DbWorker {
                         .collect()
                 };
 
+                let column_types: Vec<String> = if rows.is_empty() {
+                    vec![]
+                } else {
+                    rows[0]
+                        .columns()
+                        .iter()
+                        .map(|c| c.type_info().to_string())
+                        .collect()
+                };
+
                 let mut data: Vec<Vec<String>> = Vec::with_capacity(rows.len());
                 for row in &rows {
                     let mut row_data: Vec<String> = Vec::with_capacity(row.len());
@@ -776,11 +802,20 @@ impl DbWorker {
                     data.push(row_data);
                 }
 
+                let source_table = crate::db::extract_source_table(sql);
+                let primary_keys = source_table
+                    .as_ref()
+                    .and_then(|t| self.get_primary_keys(t))
+                    .unwrap_or_default();
+
                 DbResponse::QueryResult(QueryResult {
                     sql: sql.to_string(),
                     columns,
+                    column_types,
                     rows: data,
                     execution_time_ms: start.elapsed().as_millis() as u64,
+                    source_table,
+                    primary_keys,
                 })
             }
             Err(e) => {
@@ -807,6 +842,16 @@ impl DbWorker {
                         .collect()
                 };
 
+                let column_types: Vec<String> = if rows.is_empty() {
+                    vec![]
+                } else {
+                    rows[0]
+                        .columns()
+                        .iter()
+                        .map(|c| c.type_info().to_string())
+                        .collect()
+                };
+
                 let mut data: Vec<Vec<String>> = Vec::with_capacity(rows.len());
                 for row in &rows {
                     let mut row_data: Vec<String> = Vec::with_capacity(row.len());
@@ -816,11 +861,20 @@ impl DbWorker {
                     data.push(row_data);
                 }
 
+                let source_table = crate::db::extract_source_table(sql);
+                let primary_keys = source_table
+                    .as_ref()
+                    .and_then(|t| self.get_primary_keys(t))
+                    .unwrap_or_default();
+
                 DbResponse::QueryResult(QueryResult {
                     sql: sql.to_string(),
                     columns,
+                    column_types,
                     rows: data,
                     execution_time_ms: start.elapsed().as_millis() as u64,
+                    source_table,
+                    primary_keys,
                 })
             }
             Err(e) => {
@@ -910,6 +964,144 @@ impl DbWorker {
             || error_lower.contains("timeout")
             || error_lower.contains("refused")
             || error_lower.contains("reset")
+    }
+
+    async fn execute_mutation(&self, sql: &str) -> DbResponse {
+        match &self.pool {
+            Some(DbPool::Postgres(pool)) => match sqlx::query(sql).execute(pool).await {
+                Ok(result) => DbResponse::MutationResult {
+                    affected_rows: result.rows_affected(),
+                },
+                Err(e) => DbResponse::Error(e.to_string()),
+            },
+            Some(DbPool::MySQL(pool)) => match sqlx::query(sql).execute(pool).await {
+                Ok(result) => DbResponse::MutationResult {
+                    affected_rows: result.rows_affected(),
+                },
+                Err(e) => DbResponse::Error(e.to_string()),
+            },
+            None => DbResponse::Error("Not connected".into()),
+        }
+    }
+
+    async fn execute_batch(&self, statements: &[String]) -> DbResponse {
+        let mut total_affected = 0u64;
+        let count = statements.len();
+
+        match &self.pool {
+            Some(DbPool::Postgres(pool)) => {
+                let mut tx = match pool.begin().await {
+                    Ok(tx) => tx,
+                    Err(e) => return DbResponse::Error(e.to_string()),
+                };
+                for sql in statements {
+                    match sqlx::query(sql).execute(&mut *tx).await {
+                        Ok(r) => total_affected += r.rows_affected(),
+                        Err(e) => {
+                            let _ = tx.rollback().await;
+                            return DbResponse::Error(format!("Batch failed: {}", e));
+                        }
+                    }
+                }
+                if let Err(e) = tx.commit().await {
+                    return DbResponse::Error(format!("Commit failed: {}", e));
+                }
+            }
+            Some(DbPool::MySQL(pool)) => {
+                let mut tx = match pool.begin().await {
+                    Ok(tx) => tx,
+                    Err(e) => return DbResponse::Error(e.to_string()),
+                };
+                for sql in statements {
+                    match sqlx::query(sql).execute(&mut *tx).await {
+                        Ok(r) => total_affected += r.rows_affected(),
+                        Err(e) => {
+                            let _ = tx.rollback().await;
+                            return DbResponse::Error(format!("Batch failed: {}", e));
+                        }
+                    }
+                }
+                if let Err(e) = tx.commit().await {
+                    return DbResponse::Error(format!("Commit failed: {}", e));
+                }
+            }
+            None => return DbResponse::Error("Not connected".into()),
+        }
+
+        DbResponse::BatchResult {
+            affected_rows: total_affected,
+            statement_count: count,
+        }
+    }
+
+    async fn execute_import(
+        &self,
+        table: &str,
+        columns: &[String],
+        rows: &[Vec<String>],
+        batch_size: usize,
+    ) {
+        let total = rows.len();
+        let col_list = columns.join(", ");
+
+        for (batch_idx, chunk) in rows.chunks(batch_size).enumerate() {
+            let mut statements = Vec::with_capacity(chunk.len());
+            for row in chunk {
+                let values: Vec<String> = row
+                    .iter()
+                    .map(|v| {
+                        if v == "NULL" {
+                            "NULL".to_string()
+                        } else {
+                            format!("'{}'", v.replace('\'', "''"))
+                        }
+                    })
+                    .collect();
+                statements.push(format!(
+                    "INSERT INTO {} ({}) VALUES ({})",
+                    table,
+                    col_list,
+                    values.join(", ")
+                ));
+            }
+
+            let batch_resp = self.execute_batch(&statements).await;
+            match batch_resp {
+                DbResponse::BatchResult { .. } => {
+                    let inserted = ((batch_idx + 1) * batch_size).min(total);
+                    let _ = self
+                        .response_tx
+                        .send(DbResponse::ImportProgress { inserted, total });
+                }
+                DbResponse::Error(e) => {
+                    let _ = self.response_tx.send(DbResponse::Error(format!(
+                        "Import failed at row {}: {}",
+                        batch_idx * batch_size,
+                        e
+                    )));
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        let _ = self.response_tx.send(DbResponse::ImportComplete { total });
+    }
+
+    fn get_primary_keys(&self, table_name: &str) -> Option<Vec<String>> {
+        let schema = self.cached_schema.as_ref()?;
+        let table = schema.tables.iter().find(|t| t.name == table_name)?;
+        let pks: Vec<String> = table
+            .columns
+            .iter()
+            .filter(|c| c.is_primary_key)
+            .map(|c| c.name.clone())
+            .collect();
+        if pks.is_empty() {
+            None
+        } else {
+            Some(pks)
+        }
     }
 
     async fn disconnect(&mut self) -> DbResponse {

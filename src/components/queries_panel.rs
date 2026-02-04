@@ -1,5 +1,5 @@
 use crate::config::QueryStore;
-use crate::state::{EDITOR_CONTENT, IS_DARK_MODE, QUERIES_REVISION};
+use crate::state::{EDITOR_TABS, IS_DARK_MODE, QUERIES_REVISION};
 use dioxus::prelude::*;
 
 #[component]
@@ -125,7 +125,11 @@ pub fn QueriesPanel() -> Element {
                             onclick: move |_| {
                                 let name = new_query_name.read().clone();
                                 if !name.is_empty() {
-                                    let sql = EDITOR_CONTENT.read().clone();
+                                    let sql = EDITOR_TABS
+                                        .read()
+                                        .active_tab()
+                                        .map(|t| t.content.clone())
+                                        .unwrap_or_default();
                                     let store = query_store.write();
                                     let mut qs = store.load_queries();
                                     qs.push(crate::config::SavedQuery { name, sql, is_bookmarked: false });
@@ -167,7 +171,10 @@ pub fn QueriesPanel() -> Element {
                             onclick: {
                                 let query_clone = query.clone();
                                 move |_| {
-                                    *EDITOR_CONTENT.write() = query_clone.sql.clone();
+                                    if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                                        tab.content = query_clone.sql.clone();
+                                        tab.unsaved_changes = true;
+                                    }
                                 }
                             },
                             "{query.name}"

@@ -8,6 +8,11 @@ use dioxus::prelude::*;
 pub fn App() -> Element {
     let (db_tx, llm_tx) = use_hook(init_services);
 
+    // Make DB sender globally accessible for Phase 2 features
+    use_hook(|| {
+        *DB_SENDER.write() = Some(db_tx.clone());
+    });
+
     use_context_provider(|| db_tx);
     use_context_provider(|| llm_tx);
 

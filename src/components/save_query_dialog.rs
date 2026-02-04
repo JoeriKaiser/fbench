@@ -58,7 +58,11 @@ fn SaveQueryDialogContent() -> Element {
             return;
         }
 
-        let sql = EDITOR_CONTENT.read().clone();
+        let sql = EDITOR_TABS
+            .read()
+            .active_tab()
+            .map(|t| t.content.clone())
+            .unwrap_or_default();
         if sql.trim().is_empty() {
             error_message.set(Some("Query content is empty".to_string()));
             return;

@@ -12,6 +12,17 @@ pub struct QueryTab {
     pub last_error: Option<String>,
     pub execution_time_ms: Option<u64>,
     pub unsaved_changes: bool,
+    pub filter_state: Option<crate::filter::FilterState>,
+    pub edit_mode: bool,
+    pub pending_edits: Vec<CellEdit>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CellEdit {
+    pub row_idx: usize,
+    pub column: String,
+    pub old_value: String,
+    pub new_value: String,
 }
 
 impl QueryTab {
@@ -25,6 +36,9 @@ impl QueryTab {
             last_error: None,
             execution_time_ms: None,
             unsaved_changes: false,
+            filter_state: None,
+            edit_mode: false,
+            pending_edits: vec![],
         }
     }
 

@@ -1,8 +1,18 @@
 use crate::db::SchemaInfo;
 use dioxus::prelude::*;
+use tokio::sync::mpsc;
 
 // Re-export DatabaseType from db module
 pub use crate::db::DatabaseType;
+
+pub static DB_SENDER: GlobalSignal<Option<mpsc::UnboundedSender<crate::db::DbRequest>>> =
+    Signal::global(|| None);
+
+pub fn send_db_request(request: crate::db::DbRequest) {
+    if let Some(sender) = DB_SENDER.read().as_ref() {
+        let _ = sender.send(request);
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConnectionState {

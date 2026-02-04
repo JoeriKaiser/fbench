@@ -97,7 +97,10 @@ pub fn AiResultsPanel() -> Element {
                                 button {
                                     class: "px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors",
                                     onclick: move |_| {
-                                        *EDITOR_CONTENT.write() = sql.clone();
+                                        if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                                            tab.content = sql.clone();
+                                            tab.unsaved_changes = true;
+                                        }
                                         *AI_PANEL.write() = AiPanelState::default();
                                     },
                                     "Apply SQL"

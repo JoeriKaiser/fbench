@@ -101,6 +101,26 @@ pub fn MenuBar() -> Element {
                 span { "Export" }
             }
 
+            button {
+                class: "px-3 py-1.5 text-sm {text_class} {hover_class} rounded flex items-center space-x-1.5 transition-colors",
+                onclick: move |_| {
+                    *SHOW_IMPORT_DIALOG.write() = true;
+                },
+                svg {
+                    class: "w-4 h-4",
+                    fill: "none",
+                    stroke: "currentColor",
+                    view_box: "0 0 24 24",
+                    path {
+                        stroke_linecap: "round",
+                        stroke_linejoin: "round",
+                        stroke_width: "2",
+                        d: "M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12",
+                    }
+                }
+                span { "Import" }
+            }
+
             div { class: "flex-1" }
 
             ConnectionStatus {}

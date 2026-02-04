@@ -86,7 +86,10 @@ pub fn ContextMenu() -> Element {
                     class: "w-full text-left px-3 py-2 text-sm {text_class} {hover_class} transition-colors flex items-center space-x-2",
                     onclick: move |_| {
                         let sql = format!("SELECT * FROM \"{}\" LIMIT 100;", table_name_for_select);
-                        *EDITOR_CONTENT.write() = sql;
+                        if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                            tab.content = sql;
+                            tab.unsaved_changes = true;
+                        }
                         hide_context_menu();
                     },
 

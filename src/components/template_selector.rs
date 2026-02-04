@@ -31,7 +31,10 @@ pub fn TemplateSelector() -> Element {
                                 .map(|v| (v.name.clone(), v.default_value.clone().unwrap_or_default()))
                                 .collect();
                             let sql = template.apply(&values);
-                            *EDITOR_CONTENT.write() = sql;
+                            if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                                tab.content = sql;
+                                tab.unsaved_changes = true;
+                            }
                         }
                     }
                 },

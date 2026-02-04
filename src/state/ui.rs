@@ -64,3 +64,9 @@ pub static JSON_VIEWER_CONTENT: GlobalSignal<String> = Signal::global(|| String:
 
 /// Execution plan modal state
 pub static SHOW_EXECUTION_PLAN: GlobalSignal<bool> = Signal::global(|| false);
+
+/// Import progress state: (inserted, total)
+pub static IMPORT_PROGRESS: GlobalSignal<Option<(usize, usize)>> = Signal::global(|| None);
+
+/// Import dialog visibility
+pub static SHOW_IMPORT_DIALOG: GlobalSignal<bool> = Signal::global(|| false);
