@@ -14,6 +14,7 @@ pub mod schema_panel;
 pub mod sidebar;
 pub mod sql_editor;
 pub mod status_bar;
+pub mod tab_bar;
 pub mod template_selector;
 
 pub use ai_results_panel::*;
@@ -31,4 +32,5 @@ pub use schema_panel::*;
 pub use sidebar::*;
 pub use sql_editor::*;
 pub use status_bar::*;
+pub use tab_bar::*;
 pub use template_selector::*;
