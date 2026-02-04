@@ -45,10 +45,14 @@ Connect to a database, browse schema, write SQL queries, and export results.
 ## Features
 
 - **Multi-database**: PostgreSQL and MySQL support
+- **Multi-tab Editor**: Work with multiple queries simultaneously, each with its own results and state
 - **Schema browser**: Tables, views, columns with row estimates
 - **Table inspector**: Columns, indexes, constraints
 - **Query editor**: Syntax highlighting via Shiki, autocomplete
 - **Results**: Sortable columns, export (CSV/JSON/XML)
+- **Data Editing**: Edit cells inline, insert new rows, delete rows (for single-table queries with primary keys)
+- **Foreign Key Navigation**: Click FK links to jump to related records
+- **Data Import**: Import CSV/JSON data directly into tables
 - **Connections**: Save and manage multiple connections
 - **Query history**: Last 50 executed queries with persistence
 - **Connection health monitoring**: Automatic health checks with visual status indicators
