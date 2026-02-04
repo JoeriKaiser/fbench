@@ -125,13 +125,11 @@ pub fn ResultsTable() -> Element {
 }
 
 fn show_execution_plan() {
-    // TODO: Show execution plan modal
-    // For now, just log
-    println!("Show execution plan");
+    use crate::components::execution_plan::request_execution_plan;
+    request_execution_plan();
 }
 
 fn view_cell_content(content: String) {
-    // TODO: Open modal with full content
-    // Check if JSON and pretty-print
-    println!("View cell: {}", content);
+    *JSON_VIEWER_CONTENT.write() = content;
+    *SHOW_JSON_VIEWER.write() = true;
 }

@@ -99,6 +99,12 @@ async fn handle_db_responses(
                     Err(e) => TestConnectionStatus::Failed(e),
                 };
             }
+            DbResponse::ExplainResult(plan) => {
+                if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                    tab.execution_plan = Some(plan);
+                }
+                *SHOW_EXECUTION_PLAN.write() = true;
+            }
             _ => {}
         }
     }

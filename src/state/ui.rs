@@ -57,3 +57,10 @@ pub static IS_RESIZING_PANELS: GlobalSignal<bool> = Signal::global(|| false);
 
 /// Quick switcher visibility
 pub static SHOW_QUICK_SWITCHER: GlobalSignal<bool> = Signal::global(|| false);
+
+/// JSON viewer modal state
+pub static SHOW_JSON_VIEWER: GlobalSignal<bool> = Signal::global(|| false);
+pub static JSON_VIEWER_CONTENT: GlobalSignal<String> = Signal::global(|| String::new());
+
+/// Execution plan modal state
+pub static SHOW_EXECUTION_PLAN: GlobalSignal<bool> = Signal::global(|| false);

@@ -229,6 +229,10 @@ pub fn AppLayout() -> Element {
         LlmSettingsDialog {}
 
         SaveQueryDialog {}
+
+        JsonViewer {}
+
+        ExecutionPlanDialog {}
     }
 }
 
