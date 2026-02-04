@@ -96,22 +96,13 @@ pub fn ResultsTable() -> Element {
 
                         tbody {
                             class: "{table_divider}",
-                            for (idx, row) in result.rows.clone().into_iter().enumerate() {
+                            for (idx, row) in result.rows.iter().enumerate() {
                                 tr {
                                     class: if idx % 2 == 0 { "" } else { row_alt },
-                                    for cell in row.clone() {
+                                    for cell in row {
                                         td {
-                                            class: "px-4 py-2 {cell_text} font-mono cursor-pointer hover:bg-blue-500/10",
-                                            onclick: move |_| view_cell_content(cell.clone()),
-                                            title: "Click to view full content",
-                                            {
-                                                let display = if cell.len() > 100 {
-                                                    format!("{}...", &cell[..100])
-                                                } else {
-                                                    cell.clone()
-                                                };
-                                                "{display}"
-                                            }
+                                            class: "px-4 py-2 {cell_text} font-mono",
+                                            "{cell}"
                                         }
                                     }
                                 }
