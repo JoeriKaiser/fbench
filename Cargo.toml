@@ -21,7 +21,7 @@ chrono = { version = "0.4.43", features = ["serde"] }
 uuid = { version = "1.20", features = ["v4"] }
 keyring = "3"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
-sqlformat = "0.2"
+sqlformat = "0.5"
 csv = "1.3"
 
 
