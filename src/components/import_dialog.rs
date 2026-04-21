@@ -11,12 +11,12 @@ pub fn ImportDialog() -> Element {
 
     let mut step = use_signal(|| 0usize);
     let mut import_data = use_signal(|| None::<ImportData>);
-    let mut target_table = use_signal(|| String::new());
-    let mut column_mapping = use_signal(|| Vec::<(usize, String)>::new());
+    let mut target_table = use_signal(String::new);
+    let mut column_mapping = use_signal(Vec::<(usize, String)>::new);
     let mut error_msg = use_signal(|| None::<String>);
 
     let is_dark = *IS_DARK_MODE.read();
-    let progress = IMPORT_PROGRESS.read().clone();
+    let progress = *IMPORT_PROGRESS.read();
     let import_message = IMPORT_MESSAGE.read().clone();
 
     let bg = if is_dark { "bg-gray-900" } else { "bg-white" };

@@ -19,7 +19,7 @@ fn current_db_type() -> DatabaseType {
 
 #[component]
 pub fn QuickSwitcher() -> Element {
-    let mut search_query = use_signal(|| String::new());
+    let mut search_query = use_signal(String::new);
     let mut selected_index = use_signal(|| 0usize);
     let mut all_items = use_signal(Vec::<SwitcherItem>::new);
     let is_dark = *IS_DARK_MODE.read();

@@ -24,11 +24,7 @@ pub fn SchemaPanel() -> Element {
     } else {
         "text-gray-400"
     };
-    let header_text = if is_dark {
-        "text-gray-500"
-    } else {
-        "text-gray-500"
-    };
+    let header_text = "text-gray-500";
 
     rsx! {
         div {
@@ -79,11 +75,7 @@ fn SuggestionsSection() -> Element {
     let llm_tx = use_context::<LlmSender>();
     let is_dark = *IS_DARK_MODE.read();
 
-    let header_text = if is_dark {
-        "text-gray-500"
-    } else {
-        "text-gray-500"
-    };
+    let header_text = "text-gray-500";
     let item_text = if is_dark {
         "text-gray-400"
     } else {

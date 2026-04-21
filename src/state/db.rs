@@ -33,4 +33,4 @@ pub static SCHEMA: GlobalSignal<SchemaInfo> = Signal::global(SchemaInfo::default
 
 pub static CURRENT_DB_TYPE: GlobalSignal<Option<DatabaseType>> = Signal::global(|| None);
 
-pub static RECENT_TABLES: GlobalSignal<Vec<String>> = Signal::global(|| Vec::new());
+pub static RECENT_TABLES: GlobalSignal<Vec<String>> = Signal::global(Vec::new);

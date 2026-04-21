@@ -14,11 +14,7 @@ pub fn QueriesPanel() -> Element {
     let is_dark = *IS_DARK_MODE.read();
 
     // Theme-aware classes
-    let header_text = if is_dark {
-        "text-gray-500"
-    } else {
-        "text-gray-500"
-    };
+    let header_text = "text-gray-500";
     let button_text = if is_dark {
         "text-gray-400"
     } else {

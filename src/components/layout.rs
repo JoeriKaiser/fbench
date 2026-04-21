@@ -139,12 +139,10 @@ pub fn AppLayout() -> Element {
         } else {
             "bg-gray-300"
         }
+    } else if is_dark {
+        "bg-gray-900"
     } else {
-        if is_dark {
-            "bg-gray-900"
-        } else {
-            "bg-gray-100"
-        }
+        "bg-gray-100"
     };
 
     rsx! {

@@ -5,7 +5,7 @@ use dioxus::prelude::*;
 #[component]
 pub fn HistoryPanel() -> Element {
     let mut entries: Signal<Vec<HistoryEntry>> = use_signal(Vec::new);
-    let mut search_query = use_signal(|| String::new());
+    let mut search_query = use_signal(String::new);
     let is_dark = *IS_DARK_MODE.read();
 
     // Reload history when HISTORY_REVISION changes (indicating new query executed)
@@ -31,11 +31,7 @@ pub fn HistoryPanel() -> Element {
     });
 
     // Theme-aware classes
-    let header_text = if is_dark {
-        "text-gray-500"
-    } else {
-        "text-gray-500"
-    };
+    let header_text = "text-gray-500";
     let clear_text = if is_dark {
         "text-gray-500"
     } else {

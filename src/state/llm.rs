@@ -9,25 +9,13 @@ pub struct LlmPreset {
 }
 
 /// AI panel state for displaying results
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct AiPanelState {
     pub visible: bool,
     pub loading: bool,
     pub title: String,
     pub content: String,
     pub suggested_sql: Option<String>,
-}
-
-impl Default for AiPanelState {
-    fn default() -> Self {
-        Self {
-            visible: false,
-            loading: false,
-            title: String::new(),
-            content: String::new(),
-            suggested_sql: None,
-        }
-    }
 }
 
 /// Schema panel suggestions state

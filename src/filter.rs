@@ -51,18 +51,10 @@ impl FilterOperator {
             || lower.contains("numeric")
             || lower.contains("decimal")
             || lower.contains("serial")
+            || lower.contains("date")
+            || lower.contains("time")
+            || lower.contains("timestamp")
         {
-            vec![
-                Self::Equal,
-                Self::NotEqual,
-                Self::GreaterThan,
-                Self::LessThan,
-                Self::GreaterOrEqual,
-                Self::LessOrEqual,
-                Self::IsNull,
-                Self::IsNotNull,
-            ]
-        } else if lower.contains("date") || lower.contains("time") || lower.contains("timestamp") {
             vec![
                 Self::Equal,
                 Self::NotEqual,

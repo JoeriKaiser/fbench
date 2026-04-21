@@ -14,6 +14,26 @@ use super::{
 const MAX_VALUE_LEN: usize = 10_000;
 const HEALTH_CHECK_INTERVAL_SECS: u64 = 5;
 
+type PostgresConstraintRow = (
+    String,
+    String,
+    String,
+    Vec<String>,
+    Option<String>,
+    Vec<String>,
+    Option<String>,
+);
+
+type MySqlConstraintRow = (
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 enum DbPool {
     Postgres(PgPool),
     MySQL(MySqlPool),
@@ -352,18 +372,11 @@ impl DbWorker {
                 Err(e) => return DbResponse::Error(e.to_string()),
             };
 
-        let constraints: Vec<(
-            String,
-            String,
-            String,
-            Vec<String>,
-            Option<String>,
-            Vec<String>,
-            Option<String>,
-        )> = match sqlx::query_as(&constraints_sql).fetch_all(pool).await {
-            Ok(c) => c,
-            Err(e) => return DbResponse::Error(e.to_string()),
-        };
+        let constraints: Vec<PostgresConstraintRow> =
+            match sqlx::query_as(&constraints_sql).fetch_all(pool).await {
+                Ok(c) => c,
+                Err(e) => return DbResponse::Error(e.to_string()),
+            };
 
         let mut table_infos: Vec<TableInfo> = tables
             .into_iter()
@@ -548,15 +561,7 @@ impl DbWorker {
                 Err(e) => return DbResponse::Error(e.to_string()),
             };
 
-        let constraints: Vec<(
-            String,
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        )> = match sqlx::query_as(constraints_sql)
+        let constraints: Vec<MySqlConstraintRow> = match sqlx::query_as(constraints_sql)
             .bind(&db_name)
             .fetch_all(pool)
             .await
