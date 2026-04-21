@@ -320,7 +320,10 @@ pub fn ImportDialog() -> Element {
                                         div {
                                             class: "w-full h-2 rounded {input_bg}",
                                             {
-                                                let pct = if total > 0 { (inserted * 100) / total } else { 0 };
+                                                let pct = inserted
+                                                    .saturating_mul(100)
+                                                    .checked_div(total)
+                                                    .unwrap_or(0);
                                                 rsx! {
                                                     div {
                                                         class: "h-2 rounded bg-blue-600",
