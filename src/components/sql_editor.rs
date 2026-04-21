@@ -1,5 +1,5 @@
 use crate::components::{TabBar, TemplateSelector};
-use crate::config::DraftStore;
+use crate::config::{DraftData, DraftStore, TabDraft};
 use crate::hooks::use_shiki::use_shiki;
 use crate::services::DbSender;
 use crate::state::*;
@@ -9,6 +9,8 @@ use dioxus::prelude::*;
 pub fn SqlEditor() -> Element {
     let shiki = use_shiki();
     let mut highlighted = use_signal(String::new);
+    let mut highlight_generation = use_signal(|| 0u64);
+    let mut draft_save_generation = use_signal(|| 0u64);
     let is_dark = *IS_DARK_MODE.read();
 
     // Theme-aware classes
@@ -41,10 +43,26 @@ pub fn SqlEditor() -> Element {
             .map(|t| t.content.clone())
             .unwrap_or_default();
         let is_ready = shiki.is_ready();
+
+        if !is_ready || code.is_empty() {
+            highlighted.set(String::new());
+            return;
+        }
+
+        let generation = {
+            let mut current = highlight_generation.write();
+            *current += 1;
+            *current
+        };
         let shiki = shiki;
         spawn(async move {
-            if is_ready {
-                if let Some(html) = shiki.highlight(&code).await {
+            tokio::time::sleep(tokio::time::Duration::from_millis(120)).await;
+            if *highlight_generation.read() != generation {
+                return;
+            }
+
+            if let Some(html) = shiki.highlight(&code).await {
+                if *highlight_generation.read() == generation {
                     highlighted.set(html);
                 }
             }
@@ -53,13 +71,75 @@ pub fn SqlEditor() -> Element {
 
     // Auto-save draft every 2 seconds when content changes
     use_effect(move || {
-        let tabs = EDITOR_TABS.read();
-        let tabs_vec = tabs.tabs.clone();
-        let active_id = tabs.active_tab_id.clone();
+        let draft_data = {
+            let tabs = EDITOR_TABS.read();
+            let active_index = tabs
+                .active_tab_id
+                .as_ref()
+                .and_then(|id| tabs.tabs.iter().position(|tab| &tab.id == id))
+                .unwrap_or(0);
+
+            DraftData {
+                tabs: tabs
+                    .tabs
+                    .iter()
+                    .map(|tab| TabDraft {
+                        title: tab.title.clone(),
+                        content: tab.content.clone(),
+                    })
+                    .collect(),
+                active_tab_index: active_index,
+            }
+        };
+
+        let generation = {
+            let mut current = draft_save_generation.write();
+            *current += 1;
+            *current
+        };
+
         spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            if *draft_save_generation.read() != generation {
+                return;
+            }
+
             let store = DraftStore::new();
-            let _ = store.save_tabs(&tabs_vec, active_id.as_deref());
+            let _ = store.save_draft_data(&draft_data);
+        });
+    });
+
+    // Keep the visible highlighted layer in sync with textarea scrolling.
+    let content_for_scroll_sync = content.clone();
+    use_effect(move || {
+        let _ = content_for_scroll_sync.clone();
+        let _ = highlighted.read().clone();
+
+        spawn(async move {
+            let _ = document::eval(
+                r#"
+                const textarea = document.getElementById('sql-editor-input');
+                const highlight = document.getElementById('sql-editor-highlight');
+
+                if (!textarea || !highlight) {
+                    return;
+                }
+
+                const syncScroll = () => {
+                    highlight.scrollTop = textarea.scrollTop;
+                    highlight.scrollLeft = textarea.scrollLeft;
+                };
+
+                if (!textarea.dataset.scrollSyncBound) {
+                    textarea.addEventListener('scroll', syncScroll);
+                    textarea.addEventListener('input', syncScroll);
+                    textarea.dataset.scrollSyncBound = 'true';
+                }
+
+                syncScroll();
+                "#,
+            )
+            .await;
         });
     });
 
@@ -96,29 +176,6 @@ pub fn SqlEditor() -> Element {
                         }
                     }
                     span { "Run" }
-                }
-
-                button {
-                    class: "px-3 py-1.5 text-sm rounded flex items-center space-x-1.5 transition-colors",
-                    class: if is_dark {
-                        "bg-gray-900 hover:bg-gray-800 text-gray-300"
-                    } else {
-                        "bg-gray-100 hover:bg-gray-200 text-gray-700"
-                    },
-                    onclick: move |_| execute_statement(),
-                    svg {
-                        class: "w-3.5 h-3.5",
-                        fill: "none",
-                        stroke: "currentColor",
-                        view_box: "0 0 24 24",
-                        path {
-                            stroke_linecap: "round",
-                            stroke_linejoin: "round",
-                            stroke_width: "2",
-                            d: "M13 10V3L4 14h7v7l9-11h-7z",
-                        }
-                    }
-                    span { "Run Statement" }
                 }
 
                 // Format button
@@ -160,17 +217,20 @@ pub fn SqlEditor() -> Element {
 
                 // Highlighted code layer (behind textarea)
                 div {
+                    id: "sql-editor-highlight",
                     class: "absolute inset-0 p-4 font-mono text-sm leading-6 overflow-auto pointer-events-none select-none",
                     dangerous_inner_html: "{highlighted}",
                 }
 
                 // Textarea for input (on top)
                 textarea {
+                    id: "sql-editor-input",
                     class: if shiki.is_ready() {
-                        "absolute inset-0 w-full h-full p-4 bg-transparent text-transparent caret-blue-500 font-mono text-sm leading-6 resize-none focus:outline-none border-0"
+                        "absolute inset-0 w-full h-full p-4 bg-transparent text-transparent caret-blue-500 font-mono text-sm leading-6 resize-none focus:outline-none border-0 overflow-auto"
                     } else {
-                        "absolute inset-0 w-full h-full p-4 bg-transparent text-gray-700 caret-blue-500 font-mono text-sm leading-6 resize-none focus:outline-none border-0"
+                        "absolute inset-0 w-full h-full p-4 bg-transparent text-gray-700 caret-blue-500 font-mono text-sm leading-6 resize-none focus:outline-none border-0 overflow-auto"
                     },
+                    wrap: "off",
                     value: "{content}",
                     oninput: move |e| {
                         if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
@@ -182,19 +242,6 @@ pub fn SqlEditor() -> Element {
                         if e.data.key() == Key::Enter && e.data.modifiers().contains(keyboard_types::Modifiers::CONTROL) {
                             e.prevent_default();
                             execute_query();
-                        }
-                        else if e.data.key() == Key::Character("d".to_string()) &&
-                                e.data.modifiers().contains(keyboard_types::Modifiers::CONTROL) {
-                            e.prevent_default();
-                            duplicate_current_line();
-                        }
-                        else if e.data.key() == Key::Tab {
-                            e.prevent_default();
-                            if e.data.modifiers().contains(keyboard_types::Modifiers::SHIFT) {
-                                outdent_selection();
-                            } else {
-                                indent_selection();
-                            }
                         }
                     },
                     spellcheck: "false",
@@ -218,10 +265,6 @@ fn execute_query() {
     }
 }
 
-fn execute_statement() {
-    execute_query();
-}
-
 fn format_current_query() {
     use sqlformat::format;
 
@@ -232,48 +275,6 @@ fn format_current_query() {
             sqlformat::FormatOptions::default(),
         );
         tab.content = formatted;
-        tab.unsaved_changes = true;
-    }
-}
-
-fn duplicate_current_line() {
-    if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
-        let content = tab.content.clone();
-        tab.content = format!("{}\n{}", content, content);
-        tab.unsaved_changes = true;
-    }
-}
-
-fn indent_selection() {
-    if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
-        let indented: String = tab
-            .content
-            .lines()
-            .map(|line| format!("    {}", line))
-            .collect::<Vec<_>>()
-            .join("\n");
-        tab.content = indented;
-        tab.unsaved_changes = true;
-    }
-}
-
-fn outdent_selection() {
-    if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
-        let outdented: String = tab
-            .content
-            .lines()
-            .map(|line| {
-                if line.starts_with("    ") {
-                    line[4..].to_string()
-                } else if line.starts_with('\t') {
-                    line[1..].to_string()
-                } else {
-                    line.to_string()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        tab.content = outdented;
         tab.unsaved_changes = true;
     }
 }

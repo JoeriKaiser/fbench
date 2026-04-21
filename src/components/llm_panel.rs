@@ -105,9 +105,17 @@ pub fn LlmPanel() -> Element {
                 class: "flex items-center space-x-3",
 
                 // Robot icon
-                span {
-                    class: "text-xl",
-                    ""
+                svg {
+                    class: if is_dark { "w-5 h-5 text-blue-400" } else { "w-5 h-5 text-blue-600" },
+                    fill: "none",
+                    stroke: "currentColor",
+                    view_box: "0 0 24 24",
+                    path {
+                        stroke_linecap: "round",
+                        stroke_linejoin: "round",
+                        stroke_width: "2",
+                        d: "M9 3h6m-3 0v3m-7 4h14m-1 0v7a3 3 0 01-3 3H9a3 3 0 01-3-3v-7m3 0V9a3 3 0 013-3h0a3 3 0 013 3v1m-7 4h.01M16 14h.01",
+                    }
                 }
 
                 // Preset selector
@@ -164,10 +172,31 @@ pub fn LlmPanel() -> Element {
 
                 // Settings button
                 button {
-                    class: "p-2 text-lg hover:bg-gray-700 rounded transition-colors",
+                    class: if is_dark {
+                        "p-2 text-gray-400 hover:bg-gray-800 hover:text-white rounded transition-colors"
+                    } else {
+                        "p-2 text-gray-600 hover:bg-gray-200 hover:text-gray-900 rounded transition-colors"
+                    },
                     onclick: on_settings_click,
                     title: "LLM Settings",
-                    ""
+                    svg {
+                        class: "w-4 h-4",
+                        fill: "none",
+                        stroke: "currentColor",
+                        view_box: "0 0 24 24",
+                        path {
+                            stroke_linecap: "round",
+                            stroke_linejoin: "round",
+                            stroke_width: "2",
+                            d: "M10.325 4.317a1 1 0 011.35-.936l.89.445a1 1 0 00.87 0l.89-.445a1 1 0 011.35.936l.104.99a1 1 0 00.57.8l.84.42a1 1 0 01.45 1.34l-.4.91a1 1 0 000 .8l.4.91a1 1 0 01-.45 1.34l-.84.42a1 1 0 00-.57.8l-.104.99a1 1 0 01-1.35.936l-.89-.445a1 1 0 00-.87 0l-.89.445a1 1 0 01-1.35-.936l-.104-.99a1 1 0 00-.57-.8l-.84-.42a1 1 0 01-.45-1.34l.4-.91a1 1 0 000-.8l-.4-.91a1 1 0 01.45-1.34l.84-.42a1 1 0 00.57-.8l.104-.99z",
+                        }
+                        circle {
+                            cx: "12",
+                            cy: "12",
+                            r: "3",
+                            stroke_width: "2",
+                        }
+                    }
                 }
 
                 // Loading spinner

@@ -79,15 +79,6 @@ fn ConnectionDialogContent() -> Element {
         "border-gray-200"
     };
 
-    // Update port when db_type changes
-    use_effect(move || {
-        let new_port = match db_type() {
-            DbType::PostgreSQL => 5432,
-            DbType::MySQL => 3306,
-        };
-        port.set(new_port);
-    });
-
     // Reset test status when dialog opens and auto-select last used connection
     use_effect(move || {
         *TEST_CONNECTION_STATUS.write() = TestConnectionStatus::Idle;
@@ -107,18 +98,16 @@ fn ConnectionDialogContent() -> Element {
                 schema.set(conn.schema.clone());
                 connection_name.set(conn.name.clone());
                 selected_saved_connection.set(conn.name.clone());
+                save_password.set(conn.save_password);
 
-                // Load password from keyring if not saved
-                if conn.save_password {
-                    if let Some(pwd) = conn.password.clone() {
-                        password.set(pwd);
-                    }
-                } else {
+                let stored_password = if conn.save_password {
                     let st = store.read();
-                    if let Some(pwd) = st.get_password(&conn.name) {
-                        password.set(pwd);
-                    }
-                }
+                    st.get_password(&conn.name)
+                        .or_else(|| conn.password.clone())
+                } else {
+                    conn.password.clone()
+                };
+                password.set(stored_password.unwrap_or_default());
             }
         }
     });
@@ -231,6 +220,8 @@ fn ConnectionDialogContent() -> Element {
 
         if save_password() {
             let _ = st.set_password(&name, &password.read());
+        } else {
+            let _ = st.delete_password(&name);
         }
 
         // Set as last used connection (before dropping st)
@@ -296,18 +287,15 @@ fn ConnectionDialogContent() -> Element {
                                 database.set(conn.database.clone());
                                 schema.set(conn.schema.clone());
                                 connection_name.set(conn.name.clone());
+                                save_password.set(conn.save_password);
 
-                                // Load password from keyring if not saved
-                                if conn.save_password {
-                                    if let Some(pwd) = conn.password.clone() {
-                                        password.set(pwd);
-                                    }
-                                } else {
+                                let stored_password = if conn.save_password {
                                     let st = store.read();
-                                    if let Some(pwd) = st.get_password(&conn.name) {
-                                        password.set(pwd);
-                                    }
-                                }
+                                    st.get_password(&conn.name).or_else(|| conn.password.clone())
+                                } else {
+                                    conn.password.clone()
+                                };
+                                password.set(stored_password.unwrap_or_default());
 
                                 // Reset test status when loading a saved connection
                                 *TEST_CONNECTION_STATUS.write() = TestConnectionStatus::Idle;
@@ -344,7 +332,10 @@ fn ConnectionDialogContent() -> Element {
                             r#type: "radio",
                             name: "db_type",
                             checked: db_type() == DbType::PostgreSQL,
-                            onchange: move |_| db_type.set(DbType::PostgreSQL),
+                            onchange: move |_| {
+                                db_type.set(DbType::PostgreSQL);
+                                port.set(5432);
+                            },
                         }
                         span { class: "text-sm {secondary_text}", "PostgreSQL" }
                     }
@@ -355,7 +346,10 @@ fn ConnectionDialogContent() -> Element {
                             r#type: "radio",
                             name: "db_type",
                             checked: db_type() == DbType::MySQL,
-                            onchange: move |_| db_type.set(DbType::MySQL),
+                            onchange: move |_| {
+                                db_type.set(DbType::MySQL);
+                                port.set(3306);
+                            },
                         }
                         span { class: "text-sm {secondary_text}", "MySQL" }
                     }

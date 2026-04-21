@@ -1,4 +1,5 @@
 use crate::components::filter_panel::{toggle_sort, FilterPanel};
+use crate::db::{normalize_table_name, quote_identifier};
 use crate::filter::SortDirection;
 use crate::state::tabs::CellEdit;
 use crate::state::*;
@@ -15,9 +16,17 @@ struct FkLink {
     column_mapping: Vec<(String, String)>,
 }
 
+fn current_db_type() -> DatabaseType {
+    match *CONNECTION.read() {
+        ConnectionState::Connected { db_type, .. } => db_type,
+        _ => DatabaseType::PostgreSQL,
+    }
+}
+
 fn detect_fk_columns(source_table: &str, result_columns: &[String]) -> HashMap<usize, FkLink> {
     let schema = SCHEMA.read();
     let mut fk_map = HashMap::new();
+    let source_table = normalize_table_name(source_table);
 
     let table_info = schema.tables.iter().find(|t| t.name == source_table);
     let Some(table) = table_info else {
@@ -72,7 +81,11 @@ fn navigate_fk(
             if value == "NULL" {
                 None
             } else {
-                Some(format!("{} = '{}'", foreign_col, value.replace('\'', "''")))
+                Some(format!(
+                    "{} = '{}'",
+                    quote_identifier(current_db_type(), foreign_col),
+                    value.replace('\'', "''")
+                ))
             }
         })
         .collect();
@@ -83,7 +96,7 @@ fn navigate_fk(
 
     let sql = format!(
         "SELECT * FROM {} WHERE {}",
-        foreign_table,
+        quote_identifier(current_db_type(), foreign_table),
         conditions.join(" AND ")
     );
 
@@ -400,21 +413,13 @@ pub fn ResultsTable() -> Element {
                                                                     class: "w-full bg-transparent border border-blue-500 px-1 outline-none {cell_text} font-mono text-sm",
                                                                     value: "{display_value}",
                                                                     autofocus: true,
-                                                                    onblur: {
-                                                                        let original_value = original_value.clone();
-                                                                        let col_for_commit = col_for_commit.clone();
-                                                                        move |evt: FocusEvent| {
-                                                                            // Commit is handled via oninput tracking
-                                                                            *EDITING_CELL.write() = None;
-                                                                        }
+                                                                    onblur: move |_| {
+                                                                        // Commit is handled via oninput tracking
+                                                                        *EDITING_CELL.write() = None;
                                                                     },
-                                                                    onkeydown: {
-                                                                        let original_value = original_value.clone();
-                                                                        let col_for_commit = col_for_commit.clone();
-                                                                        move |evt: KeyboardEvent| {
-                                                                            if evt.key() == Key::Escape {
-                                                                                *EDITING_CELL.write() = None;
-                                                                            }
+                                                                    onkeydown: move |evt: KeyboardEvent| {
+                                                                        if evt.key() == Key::Escape {
+                                                                            *EDITING_CELL.write() = None;
                                                                         }
                                                                     },
                                                                     onchange: {

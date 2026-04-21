@@ -77,9 +77,12 @@ pub fn MenuBar() -> Element {
                 class: "px-3 py-1.5 text-sm {text_class} {hover_class} rounded flex items-center space-x-1.5 transition-colors",
                 onclick: move |_| {
                     tracing::info!("Export button clicked");
-                    let result = QUERY_RESULT.read();
-                    tracing::info!("Query result exists: {}", result.is_some());
-                    if let Some(result) = result.clone() {
+                    let result = EDITOR_TABS
+                        .read()
+                        .active_tab()
+                        .and_then(|tab| tab.result.clone());
+                    tracing::info!("Active tab result exists: {}", result.is_some());
+                    if let Some(result) = result {
                         tracing::info!("Exporting {} rows", result.rows.len());
                         export_results(result, ExportFormat::Csv);
                     } else {
@@ -138,17 +141,33 @@ fn ConnectionStatus() -> Element {
     };
 
     let (icon_class, text, color_class) = match *CONNECTION.read() {
-        ConnectionState::Disconnected => (disconnected_bg, "Disconnected", "text-gray-500"),
-        ConnectionState::Connecting => ("bg-yellow-500", "Connecting...", "text-yellow-500"),
-        ConnectionState::Connected { db_type, .. } => {
-            let db_name = match db_type {
+        ConnectionState::Disconnected => {
+            (disconnected_bg, "Disconnected".to_string(), "text-gray-500")
+        }
+        ConnectionState::Connecting => (
+            "bg-yellow-500",
+            "Connecting...".to_string(),
+            "text-yellow-500",
+        ),
+        ConnectionState::Connected {
+            db_type,
+            ref db_name,
+        } => {
+            let db_label = match db_type {
                 DatabaseType::PostgreSQL => "PostgreSQL",
                 DatabaseType::MySQL => "MySQL",
             };
-            ("bg-green-500", db_name, "text-green-500")
+            let text = if db_name.is_empty() {
+                db_label.to_string()
+            } else {
+                format!("{} · {}", db_name, db_label)
+            };
+            ("bg-green-500", text, "text-green-500")
         }
-        ConnectionState::ConnectionLost => ("bg-red-500", "Connection Lost", "text-red-500"),
-        ConnectionState::Error(_) => ("bg-red-500", "Error", "text-red-500"),
+        ConnectionState::ConnectionLost => {
+            ("bg-red-500", "Connection Lost".to_string(), "text-red-500")
+        }
+        ConnectionState::Error(_) => ("bg-red-500", "Error".to_string(), "text-red-500"),
     };
 
     rsx! {

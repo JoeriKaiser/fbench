@@ -31,15 +31,16 @@ async fn handle_db_responses(
 
     while let Some(response) = rx.recv().await {
         match response {
-            DbResponse::Connected(db_type) => {
+            DbResponse::Connected(db_type, db_name) => {
                 let db_type_enum = match db_type {
                     crate::db::DatabaseType::PostgreSQL => DatabaseType::PostgreSQL,
                     crate::db::DatabaseType::MySQL => DatabaseType::MySQL,
                 };
                 *CONNECTION.write() = ConnectionState::Connected {
                     db_type: db_type_enum,
-                    db_name: String::new(),
+                    db_name,
                 };
+                *CURRENT_DB_TYPE.write() = Some(db_type_enum);
                 // Close dialog and reset test status on successful connection
                 *SHOW_CONNECTION_DIALOG.write() = false;
                 *TEST_CONNECTION_STATUS.write() = TestConnectionStatus::Idle;
@@ -58,9 +59,6 @@ async fn handle_db_responses(
                     Some(result.rows.len()),
                     Some(result.execution_time_ms),
                 );
-                // Clear draft after successful execution
-                let store = crate::config::DraftStore::new();
-                let _ = store.clear();
                 // Notify UI that history changed
                 *HISTORY_REVISION.write() += 1;
                 // Update active tab with result
@@ -81,6 +79,10 @@ async fn handle_db_responses(
                 if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
                     tab.last_error = Some(e.clone());
                     tab.result = None;
+                }
+                if IMPORT_PROGRESS.read().is_some() {
+                    *IMPORT_PROGRESS.write() = None;
+                    *IMPORT_MESSAGE.write() = Some(format!("Import failed: {}", e));
                 }
                 *LAST_ERROR.write() = Some(e);
                 *QUERY_RESULT.write() = None;
@@ -133,10 +135,12 @@ async fn handle_db_responses(
                 }
             }
             DbResponse::ImportProgress { inserted, total } => {
+                *IMPORT_MESSAGE.write() = None;
                 *IMPORT_PROGRESS.write() = Some((inserted, total));
             }
             DbResponse::ImportComplete { total } => {
                 *IMPORT_PROGRESS.write() = None;
+                *IMPORT_MESSAGE.write() = Some(format!("Import complete: {} rows", total));
                 tracing::info!("Import complete: {} rows", total);
             }
             _ => {}

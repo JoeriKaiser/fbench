@@ -12,8 +12,6 @@ pub static LEFT_TAB: GlobalSignal<LeftTab> = Signal::global(|| LeftTab::Schema);
 
 pub static SHOW_CONNECTION_DIALOG: GlobalSignal<bool> = Signal::global(|| false);
 
-pub static SHOW_TABLE_DETAIL: GlobalSignal<Option<String>> = Signal::global(|| None);
-
 pub static SHOW_SAVE_QUERY_DIALOG: GlobalSignal<bool> = Signal::global(|| false);
 
 /// Test connection status
@@ -30,19 +28,6 @@ pub enum TestConnectionStatus {
 pub static TEST_CONNECTION_STATUS: GlobalSignal<TestConnectionStatus> =
     Signal::global(|| TestConnectionStatus::Idle);
 
-/// System theme preference
-#[derive(Clone, Copy, Debug, PartialEq, Default)]
-pub enum ThemePreference {
-    #[default]
-    System,
-    Dark,
-    Light,
-}
-
-pub static THEME_PREFERENCE: GlobalSignal<ThemePreference> =
-    Signal::global(|| ThemePreference::System);
-
-/// Current effective theme (resolved from system preference if set to System)
 pub static IS_DARK_MODE: GlobalSignal<bool> = Signal::global(|| true);
 
 /// Panel resize state - stores the height of the SQL editor panel (in pixels)
@@ -67,6 +52,9 @@ pub static SHOW_EXECUTION_PLAN: GlobalSignal<bool> = Signal::global(|| false);
 
 /// Import progress state: (inserted, total)
 pub static IMPORT_PROGRESS: GlobalSignal<Option<(usize, usize)>> = Signal::global(|| None);
+
+/// Import completion/error message shown in the import dialog
+pub static IMPORT_MESSAGE: GlobalSignal<Option<String>> = Signal::global(|| None);
 
 /// Import dialog visibility
 pub static SHOW_IMPORT_DIALOG: GlobalSignal<bool> = Signal::global(|| false);

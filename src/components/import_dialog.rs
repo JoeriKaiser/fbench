@@ -17,6 +17,7 @@ pub fn ImportDialog() -> Element {
 
     let is_dark = *IS_DARK_MODE.read();
     let progress = IMPORT_PROGRESS.read().clone();
+    let import_message = IMPORT_MESSAGE.read().clone();
 
     let bg = if is_dark { "bg-gray-900" } else { "bg-white" };
     let text = if is_dark {
@@ -63,6 +64,17 @@ pub fn ImportDialog() -> Element {
                     div {
                         class: "mb-4 p-2 rounded bg-red-900 bg-opacity-30 text-red-400 text-sm",
                         "{err}"
+                    }
+                }
+
+                if let Some(message) = import_message.as_ref() {
+                    div {
+                        class: if message.starts_with("Import failed:") {
+                            "mb-4 p-2 rounded bg-red-900 bg-opacity-30 text-red-400 text-sm"
+                        } else {
+                            "mb-4 p-2 rounded bg-green-900 bg-opacity-30 text-green-400 text-sm"
+                        },
+                        "{message}"
                     }
                 }
 
@@ -328,20 +340,33 @@ pub fn ImportDialog() -> Element {
                                         "Back"
                                     }
                                     button {
-                                        class: "px-4 py-2 rounded bg-green-700 text-white hover:bg-green-600",
+                                        class: if import_message.is_some() {
+                                            "px-4 py-2 rounded bg-gray-700 text-white hover:bg-gray-600"
+                                        } else {
+                                            "px-4 py-2 rounded bg-green-700 text-white hover:bg-green-600"
+                                        },
                                         disabled: progress.is_some(),
                                         onclick: {
                                             let table_name = table_name.clone();
                                             let mapping = mapping.clone();
+                                            let has_import_message = import_message.is_some();
                                             move |_| {
-                                                execute_import(
-                                                    &table_name,
-                                                    &mapping,
-                                                    &import_data.read(),
-                                                );
+                                                if has_import_message {
+                                                    close_dialog();
+                                                } else {
+                                                    execute_import(
+                                                        &table_name,
+                                                        &mapping,
+                                                        &import_data.read(),
+                                                    );
+                                                }
                                             }
                                         },
-                                        "Import {total_rows} rows"
+                                        if import_message.is_some() {
+                                            "Close"
+                                        } else {
+                                            "Import {total_rows} rows"
+                                        }
                                     }
                                 }
                             }
@@ -371,6 +396,8 @@ fn execute_import(table_name: &str, mapping: &[(usize, String)], data: &Option<I
         })
         .collect();
 
+    *IMPORT_MESSAGE.write() = None;
+
     let batch_size = 100;
     send_db_request(crate::db::DbRequest::ImportData {
         table: table_name.to_string(),
@@ -382,4 +409,6 @@ fn execute_import(table_name: &str, mapping: &[(usize, String)], data: &Option<I
 
 fn close_dialog() {
     *SHOW_IMPORT_DIALOG.write() = false;
+    *IMPORT_PROGRESS.write() = None;
+    *IMPORT_MESSAGE.write() = None;
 }

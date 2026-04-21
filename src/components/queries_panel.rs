@@ -1,5 +1,5 @@
 use crate::config::QueryStore;
-use crate::state::{EDITOR_TABS, IS_DARK_MODE, QUERIES_REVISION};
+use crate::state::{EDITOR_TABS, IS_DARK_MODE, QUERIES_REVISION, SHOW_SAVE_QUERY_DIALOG};
 use dioxus::prelude::*;
 
 #[component]
@@ -11,8 +11,6 @@ pub fn QueriesPanel() -> Element {
         let _ = *QUERIES_REVISION.read();
         query_store.read().load_queries()
     });
-    let mut new_query_name = use_signal(String::new);
-    let mut show_save_dialog = use_signal(|| false);
     let is_dark = *IS_DARK_MODE.read();
 
     // Theme-aware classes
@@ -30,32 +28,6 @@ pub fn QueriesPanel() -> Element {
         "hover:text-white"
     } else {
         "hover:text-gray-900"
-    };
-    let dialog_bg = if is_dark {
-        "bg-gray-900"
-    } else {
-        "bg-gray-100"
-    };
-    let dialog_border = if is_dark {
-        "border-gray-800"
-    } else {
-        "border-gray-200"
-    };
-    let input_bg = if is_dark { "bg-black" } else { "bg-white" };
-    let input_text = if is_dark {
-        "text-white"
-    } else {
-        "text-gray-900"
-    };
-    let input_placeholder = if is_dark {
-        "placeholder-gray-600"
-    } else {
-        "placeholder-gray-400"
-    };
-    let input_border = if is_dark {
-        "focus:ring-white"
-    } else {
-        "focus:ring-blue-500"
     };
     let item_text = if is_dark {
         "text-gray-400"
@@ -91,7 +63,7 @@ pub fn QueriesPanel() -> Element {
 
                 button {
                     class: "text-xs {button_text} {button_hover} flex items-center space-x-1 transition-colors",
-                    onclick: move |_| show_save_dialog.set(true),
+                    onclick: move |_| *SHOW_SAVE_QUERY_DIALOG.write() = true,
                     svg {
                         class: "w-3.5 h-3.5",
                         fill: "none",
@@ -105,52 +77,6 @@ pub fn QueriesPanel() -> Element {
                         }
                     }
                     span { "Save Current" }
-                }
-            }
-
-            if show_save_dialog() {
-                div {
-                    class: "rounded p-2 space-y-2 mb-3 border {dialog_bg} {dialog_border}",
-                    input {
-                        class: "w-full px-2 py-1 rounded text-sm focus:outline-none focus:ring-1 {input_bg} {input_text} {input_placeholder} {input_border}",
-                        placeholder: "Query name...",
-                        value: "{new_query_name}",
-                        oninput: move |e| new_query_name.set(e.value().clone()),
-                    }
-                    div {
-                        class: "flex space-x-2",
-                        button {
-                            class: "flex-1 px-2 py-1 text-xs rounded transition-colors",
-                            class: if is_dark { "bg-white hover:bg-gray-200 text-black" } else { "bg-blue-600 hover:bg-blue-500 text-white" },
-                            onclick: move |_| {
-                                let name = new_query_name.read().clone();
-                                if !name.is_empty() {
-                                    let sql = EDITOR_TABS
-                                        .read()
-                                        .active_tab()
-                                        .map(|t| t.content.clone())
-                                        .unwrap_or_default();
-                                    let store = query_store.write();
-                                    let mut qs = store.load_queries();
-                                    qs.push(crate::config::SavedQuery { name, sql, is_bookmarked: false });
-                                    let _ = store.save_queries(&qs);
-                                    new_query_name.set(String::new());
-                                    show_save_dialog.set(false);
-                                    queries.restart();
-                                }
-                            },
-                            "Save"
-                        }
-                        button {
-                            class: "flex-1 px-2 py-1 text-xs rounded transition-colors",
-                            class: if is_dark { "bg-gray-800 hover:bg-gray-700 text-white" } else { "bg-gray-200 hover:bg-gray-300 text-gray-700" },
-                            onclick: move |_| {
-                                new_query_name.set(String::new());
-                                show_save_dialog.set(false);
-                            },
-                            "Cancel"
-                        }
-                    }
                 }
             }
 

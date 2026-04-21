@@ -18,12 +18,19 @@ pub fn StatusBar() -> Element {
     };
 
     let status_text = match *CONNECTION.read() {
-        ConnectionState::Connected { db_type, .. } => {
-            let db_name = match db_type {
+        ConnectionState::Connected {
+            db_type,
+            ref db_name,
+        } => {
+            let db_label = match db_type {
                 DatabaseType::PostgreSQL => "PostgreSQL",
                 DatabaseType::MySQL => "MySQL",
             };
-            format!("Connected to {}", db_name)
+            if db_name.is_empty() {
+                format!("Connected to {}", db_label)
+            } else {
+                format!("Connected to {} / {}", db_label, db_name)
+            }
         }
         ConnectionState::ConnectionLost => "Connection lost".to_string(),
         ConnectionState::Disconnected => "Not connected".to_string(),
@@ -37,26 +44,41 @@ pub fn StatusBar() -> Element {
         _ => muted_text,
     };
 
+    let tabs = EDITOR_TABS.read();
+    let active_tab = tabs.active_tab();
+    let row_count = active_tab
+        .and_then(|tab| tab.result.as_ref())
+        .map(|result| result.rows.len());
+    let execution_time_ms = active_tab.and_then(|tab| tab.execution_time_ms);
+    let import_message = IMPORT_MESSAGE.read().clone();
+
     rsx! {
         div {
             class: "h-7 {bg_class} border-t {border_class} flex items-center px-3 justify-between text-xs",
 
             div {
-                class: "flex items-center space-x-4",
+                class: "flex items-center space-x-4 min-w-0",
                 span {
                     class: status_color,
                     "{status_text}"
+                }
+
+                if let Some(message) = import_message {
+                    span {
+                        class: "text-green-500 truncate",
+                        "{message}"
+                    }
                 }
             }
 
             div {
                 class: "flex items-center space-x-4",
 
-                if let Some(count) = *ROW_COUNT.read() {
+                if let Some(count) = row_count {
                     span { class: muted_text, "{count} rows" }
                 }
 
-                if let Some(time) = *EXECUTION_TIME_MS.read() {
+                if let Some(time) = execution_time_ms {
                     span { class: muted_text, "{time}ms" }
                 }
             }

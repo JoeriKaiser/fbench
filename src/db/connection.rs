@@ -1,7 +1,7 @@
 use sqlx::{
     mysql::{MySqlPool, MySqlRow},
     postgres::{PgPool, PgPoolOptions, PgRow},
-    Column, Row, TypeInfo, ValueRef,
+    Column, Row, ValueRef,
 };
 use tokio::sync::mpsc;
 use tokio::time::{interval, Duration};
@@ -141,6 +141,7 @@ impl DbWorker {
 
     async fn connect(&mut self, config: ConnectionConfig) -> DbResponse {
         let db_type = config.db_type;
+        let database = config.database.clone();
         let schema = config.schema.clone();
 
         let result = match db_type {
@@ -176,7 +177,7 @@ impl DbWorker {
                 } else {
                     Some(schema)
                 };
-                DbResponse::Connected(db_type)
+                DbResponse::Connected(db_type, database)
             }
             Err(e) => DbResponse::ConnectionFailed(e.to_string()),
         }
@@ -199,10 +200,26 @@ impl DbWorker {
     }
 
     async fn fetch_schema_postgres(&self, pool: &PgPool) -> DbResponse {
-        // Build schema filter condition
+        // Build schema filter conditions
         let schema_filter = match &self.schema {
             Some(schema) => format!("AND t.table_schema = '{}'", schema),
             None => "AND t.table_schema NOT IN ('pg_catalog', 'information_schema')".to_string(),
+        };
+        let views_schema_filter = match &self.schema {
+            Some(schema) => format!("WHERE table_schema = '{}'", schema),
+            None => "WHERE table_schema NOT IN ('pg_catalog', 'information_schema')".to_string(),
+        };
+        let columns_schema_filter = match &self.schema {
+            Some(schema) => format!("WHERE c.table_schema = '{}'", schema),
+            None => "WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema')".to_string(),
+        };
+        let namespace_filter = match &self.schema {
+            Some(schema) => format!("WHERE ns.nspname = '{}'", schema),
+            None => "WHERE ns.nspname NOT IN ('pg_catalog', 'information_schema')".to_string(),
+        };
+        let constraints_schema_filter = match &self.schema {
+            Some(schema) => format!("WHERE tc.table_schema = '{}'", schema),
+            None => "WHERE tc.table_schema NOT IN ('pg_catalog', 'information_schema')".to_string(),
         };
 
         let tables_sql = format!(
@@ -220,11 +237,6 @@ impl DbWorker {
             schema_filter
         );
 
-        let views_schema_filter = match &self.schema {
-            Some(schema) => format!("WHERE table_schema = '{}'", schema),
-            None => "WHERE table_schema NOT IN ('pg_catalog', 'information_schema')".to_string(),
-        };
-
         let views_sql = format!(
             r#"
             SELECT table_name::TEXT 
@@ -234,11 +246,6 @@ impl DbWorker {
         "#,
             views_schema_filter
         );
-
-        let columns_schema_filter = match &self.schema {
-            Some(schema) => format!("WHERE c.table_schema = '{}'", schema),
-            None => "WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema')".to_string(),
-        };
 
         let columns_sql = format!(
             r#"
@@ -256,12 +263,71 @@ impl DbWorker {
                 JOIN information_schema.key_column_usage kcu 
                     ON tc.constraint_name = kcu.constraint_name
                     AND tc.table_schema = kcu.table_schema
+                    AND tc.table_name = kcu.table_name
                 WHERE tc.constraint_type = 'PRIMARY KEY'
             ) pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name
             {}
             ORDER BY c.table_name, c.ordinal_position
         "#,
             columns_schema_filter
+        );
+
+        let indexes_sql = format!(
+            r#"
+            SELECT 
+                t.relname::TEXT as table_name,
+                i.relname::TEXT as index_name,
+                COALESCE(array_agg(a.attname::TEXT ORDER BY x.n), ARRAY[]::TEXT[]) as columns,
+                ix.indisunique as is_unique,
+                ix.indisprimary as is_primary,
+                COALESCE(am.amname::TEXT, 'unknown') as index_type
+            FROM pg_index ix
+            JOIN pg_class t ON t.oid = ix.indrelid
+            JOIN pg_namespace ns ON ns.oid = t.relnamespace
+            JOIN pg_class i ON i.oid = ix.indexrelid
+            LEFT JOIN pg_am am ON am.oid = i.relam
+            CROSS JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS x(attnum, n)
+            JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = x.attnum
+            {}
+            GROUP BY t.relname, i.relname, ix.indisunique, ix.indisprimary, am.amname
+            ORDER BY t.relname, i.relname
+        "#,
+            namespace_filter
+        );
+
+        let constraints_sql = format!(
+            r#"
+            SELECT 
+                tc.table_name::TEXT,
+                tc.constraint_name::TEXT,
+                tc.constraint_type::TEXT,
+                COALESCE(
+                    array_agg(DISTINCT kcu.column_name::TEXT) FILTER (WHERE kcu.column_name IS NOT NULL),
+                    ARRAY[]::TEXT[]
+                ) as columns,
+                ccu.table_name::TEXT as foreign_table,
+                COALESCE(
+                    array_agg(DISTINCT ccu.column_name::TEXT) FILTER (
+                        WHERE ccu.column_name IS NOT NULL AND tc.constraint_type = 'FOREIGN KEY'
+                    ),
+                    ARRAY[]::TEXT[]
+                ) as foreign_columns,
+                cc.check_clause::TEXT
+            FROM information_schema.table_constraints tc
+            LEFT JOIN information_schema.key_column_usage kcu 
+                ON tc.constraint_name = kcu.constraint_name
+                AND tc.table_schema = kcu.table_schema
+                AND tc.table_name = kcu.table_name
+            LEFT JOIN information_schema.constraint_column_usage ccu 
+                ON tc.constraint_name = ccu.constraint_name
+                AND tc.constraint_type = 'FOREIGN KEY'
+            LEFT JOIN information_schema.check_constraints cc 
+                ON tc.constraint_name = cc.constraint_name
+            {}
+            GROUP BY tc.table_name, tc.constraint_name, tc.constraint_type, ccu.table_name, cc.check_clause
+            ORDER BY tc.table_name, tc.constraint_type, tc.constraint_name
+        "#,
+            constraints_schema_filter
         );
 
         let tables: Vec<(String, i64)> = match sqlx::query_as(&tables_sql).fetch_all(pool).await {
@@ -279,6 +345,25 @@ impl DbWorker {
                 Ok(c) => c,
                 Err(e) => return DbResponse::Error(e.to_string()),
             };
+
+        let indexes: Vec<(String, String, Vec<String>, bool, bool, String)> =
+            match sqlx::query_as(&indexes_sql).fetch_all(pool).await {
+                Ok(i) => i,
+                Err(e) => return DbResponse::Error(e.to_string()),
+            };
+
+        let constraints: Vec<(
+            String,
+            String,
+            String,
+            Vec<String>,
+            Option<String>,
+            Vec<String>,
+            Option<String>,
+        )> = match sqlx::query_as(&constraints_sql).fetch_all(pool).await {
+            Ok(c) => c,
+            Err(e) => return DbResponse::Error(e.to_string()),
+        };
 
         let mut table_infos: Vec<TableInfo> = tables
             .into_iter()
@@ -299,6 +384,44 @@ impl DbWorker {
                     nullable,
                     default_value,
                     is_primary_key: is_pk,
+                });
+            }
+        }
+
+        for (table_name, name, columns, is_unique, is_primary, index_type) in indexes {
+            if let Some(table) = table_infos.iter_mut().find(|t| t.name == table_name) {
+                table.indexes.push(IndexInfo {
+                    name,
+                    columns,
+                    is_unique,
+                    is_primary,
+                    index_type,
+                });
+            }
+        }
+
+        for (
+            table_name,
+            name,
+            constraint_type,
+            columns,
+            foreign_table,
+            foreign_columns,
+            check_clause,
+        ) in constraints
+        {
+            if let Some(table) = table_infos.iter_mut().find(|t| t.name == table_name) {
+                table.constraints.push(ConstraintInfo {
+                    name,
+                    constraint_type,
+                    columns,
+                    foreign_table,
+                    foreign_columns: if foreign_columns.is_empty() {
+                        None
+                    } else {
+                        Some(foreign_columns)
+                    },
+                    check_clause,
                 });
             }
         }
@@ -351,6 +474,42 @@ impl DbWorker {
             ORDER BY c.TABLE_NAME, c.ORDINAL_POSITION
         "#;
 
+        let indexes_sql = r#"
+            SELECT 
+                TABLE_NAME as table_name,
+                INDEX_NAME as name,
+                GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) as columns,
+                (NON_UNIQUE = 0) as is_unique,
+                (INDEX_NAME = 'PRIMARY') as is_primary,
+                INDEX_TYPE as index_type
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = ?
+            GROUP BY TABLE_NAME, INDEX_NAME, NON_UNIQUE, INDEX_TYPE
+            ORDER BY TABLE_NAME, INDEX_NAME
+        "#;
+
+        let constraints_sql = r#"
+            SELECT 
+                tc.TABLE_NAME as table_name,
+                tc.CONSTRAINT_NAME as name,
+                tc.CONSTRAINT_TYPE as constraint_type,
+                GROUP_CONCAT(DISTINCT kcu.COLUMN_NAME ORDER BY kcu.ORDINAL_POSITION) as columns,
+                kcu.REFERENCED_TABLE_NAME as foreign_table,
+                GROUP_CONCAT(
+                    DISTINCT kcu.REFERENCED_COLUMN_NAME
+                    ORDER BY kcu.POSITION_IN_UNIQUE_CONSTRAINT
+                ) as foreign_columns,
+                NULL as check_clause
+            FROM information_schema.TABLE_CONSTRAINTS tc
+            LEFT JOIN information_schema.KEY_COLUMN_USAGE kcu 
+                ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME 
+                AND tc.TABLE_SCHEMA = kcu.TABLE_SCHEMA
+                AND tc.TABLE_NAME = kcu.TABLE_NAME
+            WHERE tc.TABLE_SCHEMA = ?
+            GROUP BY tc.TABLE_NAME, tc.CONSTRAINT_NAME, tc.CONSTRAINT_TYPE, kcu.REFERENCED_TABLE_NAME
+            ORDER BY tc.TABLE_NAME, tc.CONSTRAINT_TYPE, tc.CONSTRAINT_NAME
+        "#;
+
         let tables: Vec<(String, i64)> = match sqlx::query_as(tables_sql)
             .bind(&db_name)
             .fetch_all(pool)
@@ -379,6 +538,33 @@ impl DbWorker {
                 Err(e) => return DbResponse::Error(e.to_string()),
             };
 
+        let indexes: Vec<(String, String, String, bool, bool, String)> =
+            match sqlx::query_as(indexes_sql)
+                .bind(&db_name)
+                .fetch_all(pool)
+                .await
+            {
+                Ok(i) => i,
+                Err(e) => return DbResponse::Error(e.to_string()),
+            };
+
+        let constraints: Vec<(
+            String,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )> = match sqlx::query_as(constraints_sql)
+            .bind(&db_name)
+            .fetch_all(pool)
+            .await
+        {
+            Ok(c) => c,
+            Err(e) => return DbResponse::Error(e.to_string()),
+        };
+
         let mut table_infos: Vec<TableInfo> = tables
             .into_iter()
             .map(|(name, row_estimate)| TableInfo {
@@ -398,6 +584,43 @@ impl DbWorker {
                     nullable,
                     default_value,
                     is_primary_key: is_pk,
+                });
+            }
+        }
+
+        for (table_name, name, columns_str, is_unique, is_primary, index_type) in indexes {
+            if let Some(table) = table_infos.iter_mut().find(|t| t.name == table_name) {
+                table.indexes.push(IndexInfo {
+                    name,
+                    columns: columns_str.split(',').map(|s| s.to_string()).collect(),
+                    is_unique,
+                    is_primary,
+                    index_type,
+                });
+            }
+        }
+
+        for (
+            table_name,
+            name,
+            constraint_type,
+            columns_str,
+            foreign_table,
+            foreign_columns_str,
+            check_clause,
+        ) in constraints
+        {
+            if let Some(table) = table_infos.iter_mut().find(|t| t.name == table_name) {
+                table.constraints.push(ConstraintInfo {
+                    name,
+                    constraint_type,
+                    columns: columns_str
+                        .map(|s| s.split(',').map(|c| c.to_string()).collect())
+                        .unwrap_or_default(),
+                    foreign_table,
+                    foreign_columns: foreign_columns_str
+                        .map(|s| s.split(',').map(|c| c.to_string()).collect()),
+                    check_clause,
                 });
             }
         }
@@ -1090,7 +1313,8 @@ impl DbWorker {
 
     fn get_primary_keys(&self, table_name: &str) -> Option<Vec<String>> {
         let schema = self.cached_schema.as_ref()?;
-        let table = schema.tables.iter().find(|t| t.name == table_name)?;
+        let normalized = super::normalize_table_name(table_name);
+        let table = schema.tables.iter().find(|t| t.name == normalized)?;
         let pks: Vec<String> = table
             .columns
             .iter()

@@ -3,7 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 
-use crate::db::SchemaInfo;
+use crate::db::{ConstraintInfo, IndexInfo, SchemaInfo};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum LlmProvider {
@@ -67,11 +67,13 @@ pub enum LlmRequest {
         sql: String,
         config: LlmConfig,
     },
+    #[allow(dead_code)]
     Optimize {
         sql: String,
         schema: SchemaInfo,
         config: LlmConfig,
     },
+    #[allow(dead_code)]
     FixError {
         sql: String,
         error: String,
@@ -410,41 +412,102 @@ impl LlmWorker {
         LlmResponse::QuerySuggestions(suggestions)
     }
 
+    fn format_constraint(&self, constraint: &ConstraintInfo) -> String {
+        let mut text = format!("{}: {}", constraint.constraint_type, constraint.name);
+
+        if !constraint.columns.is_empty() {
+            text.push_str(&format!(" ({})", constraint.columns.join(", ")));
+        }
+
+        if let Some(foreign_table) = &constraint.foreign_table {
+            text.push_str(&format!(" -> {}", foreign_table));
+            if let Some(foreign_columns) = &constraint.foreign_columns {
+                if !foreign_columns.is_empty() {
+                    text.push_str(&format!(" ({})", foreign_columns.join(", ")));
+                }
+            }
+        }
+
+        if let Some(check_clause) = &constraint.check_clause {
+            text.push_str(&format!(" [{}]", check_clause));
+        }
+
+        text
+    }
+
+    fn format_index(&self, index: &IndexInfo) -> String {
+        let mut flags = Vec::new();
+        if index.is_primary {
+            flags.push("PRIMARY");
+        } else if index.is_unique {
+            flags.push("UNIQUE");
+        }
+        if !index.index_type.is_empty() {
+            flags.push(index.index_type.as_str());
+        }
+
+        let flag_text = if flags.is_empty() {
+            String::new()
+        } else {
+            format!(" [{}]", flags.join(", "))
+        };
+
+        format!("{}{} ({})", index.name, flag_text, index.columns.join(", "))
+    }
+
     fn format_schema(&self, schema: &SchemaInfo) -> String {
         let mut text = String::new();
+
         for table in &schema.tables {
             text.push_str(&format!("Table: {}\n", table.name));
             for col in &table.columns {
                 let pk = if col.is_primary_key { " PK" } else { "" };
-                let null = if col.nullable { "?" } else { "" };
-                text.push_str(&format!("  {} {}{}{}\n", col.name, col.data_type, null, pk));
+                let null = if col.nullable { " nullable" } else { "" };
+                text.push_str(&format!(
+                    "  Column: {} {}{}{}\n",
+                    col.name, col.data_type, null, pk
+                ));
+            }
+
+            if !table.constraints.is_empty() {
+                text.push_str("  Constraints:\n");
+                for constraint in &table.constraints {
+                    text.push_str(&format!("    {}\n", self.format_constraint(constraint)));
+                }
+            }
+
+            if !table.indexes.is_empty() {
+                text.push_str("  Indexes:\n");
+                for index in &table.indexes {
+                    text.push_str(&format!("    {}\n", self.format_index(index)));
+                }
+            }
+
+            text.push('\n');
+        }
+
+        if !schema.views.is_empty() {
+            text.push_str("Views:\n");
+            for view in &schema.views {
+                text.push_str(&format!("  {}\n", view));
             }
         }
+
         text
     }
 
     fn build_prompt(&self, user_prompt: &str, schema: &SchemaInfo) -> String {
-        let mut prompt = String::from(
+        let schema_text = self.format_schema(schema);
+
+        format!(
             "You are a SQL expert. Generate a SQL query based on the user's request.\n\
-             Only output the raw SQL query, no explanations, no markdown.\n\n\
-             Database schema:\n",
-        );
-
-        for table in &schema.tables {
-            prompt.push_str(&format!("\nTable: {}\n", table.name));
-            for col in &table.columns {
-                let pk = if col.is_primary_key { " PK" } else { "" };
-                let null = if col.nullable { "?" } else { "" };
-                prompt.push_str(&format!("  {} {}{}{}\n", col.name, col.data_type, null, pk));
-            }
-        }
-
-        for view in &schema.views {
-            prompt.push_str(&format!("\nView: {}\n", view));
-        }
-
-        prompt.push_str(&format!("\nUser request: {}\n\nSQL:", user_prompt));
-        prompt
+             Only output the raw SQL query, no explanations, no markdown.\n\
+             Use only tables, views, columns, and relationships listed below.\n\
+             When a join is needed, prefer the foreign-key relationships from the schema.\n\n\
+             Database schema:\n{}\n\
+             User request: {}\n\nSQL:",
+            schema_text, user_prompt
+        )
     }
 
     async fn call_ollama(&self, prompt: &str, config: &LlmConfig) -> Result<String, String> {
@@ -541,4 +604,67 @@ pub fn spawn_llm_worker() -> (
     });
 
     (request_tx, response_rx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{ColumnInfo, SchemaInfo, TableInfo};
+
+    fn worker() -> LlmWorker {
+        let (_request_tx, request_rx) = mpsc::unbounded_channel();
+        let (response_tx, _response_rx) = mpsc::unbounded_channel();
+        LlmWorker::new(request_rx, response_tx)
+    }
+
+    #[test]
+    fn build_prompt_includes_relationships_and_indexes() {
+        let worker = worker();
+        let schema = SchemaInfo {
+            tables: vec![TableInfo {
+                name: "orders".into(),
+                columns: vec![
+                    ColumnInfo {
+                        name: "id".into(),
+                        data_type: "integer".into(),
+                        nullable: false,
+                        default_value: None,
+                        is_primary_key: true,
+                    },
+                    ColumnInfo {
+                        name: "customer_id".into(),
+                        data_type: "integer".into(),
+                        nullable: false,
+                        default_value: None,
+                        is_primary_key: false,
+                    },
+                ],
+                indexes: vec![IndexInfo {
+                    name: "orders_customer_id_idx".into(),
+                    columns: vec!["customer_id".into()],
+                    is_unique: false,
+                    is_primary: false,
+                    index_type: "btree".into(),
+                }],
+                constraints: vec![ConstraintInfo {
+                    name: "orders_customer_id_fkey".into(),
+                    constraint_type: "FOREIGN KEY".into(),
+                    columns: vec!["customer_id".into()],
+                    foreign_table: Some("customers".into()),
+                    foreign_columns: Some(vec!["id".into()]),
+                    check_clause: None,
+                }],
+                row_estimate: 0,
+            }],
+            views: vec!["recent_orders".into()],
+        };
+
+        let prompt = worker.build_prompt("list recent orders with customer names", &schema);
+
+        assert!(
+            prompt.contains("FOREIGN KEY: orders_customer_id_fkey (customer_id) -> customers (id)")
+        );
+        assert!(prompt.contains("orders_customer_id_idx [btree] (customer_id)"));
+        assert!(prompt.contains("Views:\n  recent_orders"));
+    }
 }

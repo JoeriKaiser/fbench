@@ -30,6 +30,11 @@ pub fn AiResultsPanel() -> Element {
     } else {
         "bg-white border-gray-200"
     };
+    let secondary_button = if is_dark {
+        "px-3 py-1.5 text-sm border border-gray-600 hover:bg-gray-800 text-gray-300 rounded transition-colors"
+    } else {
+        "px-3 py-1.5 text-sm border border-gray-300 hover:bg-gray-100 text-gray-700 rounded transition-colors"
+    };
 
     let title = ai_panel.title.clone();
     let content = ai_panel.content.clone();
@@ -40,7 +45,6 @@ pub fn AiResultsPanel() -> Element {
         div {
             class: "border-t {bg_class} p-4",
 
-            // Header
             div {
                 class: "flex items-center justify-between mb-3",
 
@@ -58,7 +62,6 @@ pub fn AiResultsPanel() -> Element {
                 }
             }
 
-            // Loading state
             if is_loading {
                 div {
                     class: "flex items-center space-x-2 {text_class}",
@@ -68,7 +71,6 @@ pub fn AiResultsPanel() -> Element {
                     span { "Thinking..." }
                 }
             } else {
-                // Content
                 div {
                     class: "space-y-3",
 
@@ -77,41 +79,44 @@ pub fn AiResultsPanel() -> Element {
                         "{content}"
                     }
 
-                    // Suggested SQL if available
                     if let Some(sql) = suggested_sql {
-                        div {
-                            class: "mt-3",
+                        {
+                            let apply_sql = sql.clone();
+                            let copy_sql = sql.clone();
+                            rsx! {
+                                div {
+                                    class: "mt-3",
 
-                            div {
-                                class: "border rounded {code_bg} p-3",
+                                    div {
+                                        class: "border rounded {code_bg} p-3 max-h-64 overflow-auto",
 
-                                pre {
-                                    class: "text-sm font-mono text-blue-400 overflow-x-auto",
-                                    "{sql}"
-                                }
-                            }
-
-                            div {
-                                class: "flex space-x-2 mt-3",
-
-                                button {
-                                    class: "px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors",
-                                    onclick: move |_| {
-                                        if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
-                                            tab.content = sql.clone();
-                                            tab.unsaved_changes = true;
+                                        pre {
+                                            class: "text-sm font-mono text-blue-400 whitespace-pre min-w-max",
+                                            "{sql}"
                                         }
-                                        *AI_PANEL.write() = AiPanelState::default();
-                                    },
-                                    "Apply SQL"
-                                }
+                                    }
 
-                                button {
-                                    class: "px-3 py-1.5 text-sm border border-gray-600 hover:bg-gray-800 text-gray-300 rounded transition-colors",
-                                    onclick: move |_| {
-                                        // Copy to clipboard - would need platform-specific implementation
-                                    },
-                                    "Copy"
+                                    div {
+                                        class: "flex space-x-2 mt-3",
+
+                                        button {
+                                            class: "px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors",
+                                            onclick: move |_| {
+                                                if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
+                                                    tab.content = apply_sql.clone();
+                                                    tab.unsaved_changes = true;
+                                                }
+                                                *AI_PANEL.write() = AiPanelState::default();
+                                            },
+                                            "Apply SQL"
+                                        }
+
+                                        button {
+                                            class: secondary_button,
+                                            onclick: move |_| copy_to_clipboard(&copy_sql),
+                                            "Copy"
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -120,4 +125,9 @@ pub fn AiResultsPanel() -> Element {
             }
         }
     }
+}
+
+fn copy_to_clipboard(text: &str) {
+    let escaped = text.replace('\\', "\\\\").replace('`', "\\`");
+    let _ = document::eval(&format!(r#"navigator.clipboard.writeText(`{}`)"#, escaped));
 }

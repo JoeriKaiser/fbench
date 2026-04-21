@@ -76,8 +76,9 @@ impl TabState {
             };
         }
 
-        // Default: single tab with sample query
-        let default_tab = QueryTab::new("Query 1").with_content("SELECT * FROM users LIMIT 10;");
+        // Default: single empty tab with a helpful prompt
+        let default_tab = QueryTab::new("Query 1")
+            .with_content("-- Enter a SQL query and press Ctrl+Enter to run");
         let id = default_tab.id.clone();
         Self {
             tabs: vec![default_tab],

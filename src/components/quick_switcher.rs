@@ -1,4 +1,5 @@
 use crate::config::{QueryHistory, QueryStore, RecentTablesStore};
+use crate::db::format_select_all_sql;
 use crate::state::*;
 use dioxus::prelude::*;
 
@@ -9,52 +10,74 @@ enum SwitcherItem {
     History { sql: String, timestamp: String },
 }
 
+fn current_db_type() -> DatabaseType {
+    match *CONNECTION.read() {
+        ConnectionState::Connected { db_type, .. } => db_type,
+        _ => DatabaseType::PostgreSQL,
+    }
+}
+
 #[component]
 pub fn QuickSwitcher() -> Element {
     let mut search_query = use_signal(|| String::new());
     let mut selected_index = use_signal(|| 0usize);
+    let mut all_items = use_signal(Vec::<SwitcherItem>::new);
     let is_dark = *IS_DARK_MODE.read();
     let is_visible = *SHOW_QUICK_SWITCHER.read();
 
-    // Build item list based on search
-    let items = use_memo(move || {
-        let query = search_query.read().to_lowercase();
-        let mut items = Vec::new();
+    // Load searchable items once when the switcher opens
+    use_effect(move || {
+        if is_visible {
+            let mut items = Vec::new();
 
-        // Add recent tables
-        let recent_store = RecentTablesStore::new();
-        for entry in recent_store.load() {
-            if query.is_empty() || entry.table_name.to_lowercase().contains(&query) {
+            let recent_store = RecentTablesStore::new();
+            for entry in recent_store.load() {
                 items.push(SwitcherItem::Table {
                     name: entry.table_name,
                 });
             }
-        }
 
-        // Add saved queries
-        let query_store = QueryStore::new();
-        for saved in query_store.load_queries() {
-            if query.is_empty() || saved.name.to_lowercase().contains(&query) {
+            let query_store = QueryStore::new();
+            for saved in query_store.load_queries() {
                 items.push(SwitcherItem::Query {
                     name: saved.name,
                     sql: saved.sql,
                 });
             }
-        }
 
-        // Add history
-        let history = QueryHistory::new();
-        for entry in history.get_entries() {
-            if query.is_empty() || entry.sql.to_lowercase().contains(&query) {
+            let history = QueryHistory::new();
+            for entry in history.get_entries() {
                 items.push(SwitcherItem::History {
                     sql: entry.sql.clone(),
                     timestamp: entry.executed_at.format("%H:%M").to_string(),
                 });
             }
-        }
 
-        items.truncate(20); // Limit results
-        items
+            all_items.set(items);
+            selected_index.set(0);
+        } else {
+            search_query.set(String::new());
+            selected_index.set(0);
+        }
+    });
+
+    // Filter loaded items in memory while typing
+    let items = use_memo(move || {
+        let query = search_query.read().to_lowercase();
+        let mut filtered: Vec<SwitcherItem> = all_items
+            .read()
+            .iter()
+            .filter(|item| match item {
+                SwitcherItem::Table { name } => name.to_lowercase().contains(&query),
+                SwitcherItem::Query { name, sql } => {
+                    name.to_lowercase().contains(&query) || sql.to_lowercase().contains(&query)
+                }
+                SwitcherItem::History { sql, .. } => sql.to_lowercase().contains(&query),
+            })
+            .cloned()
+            .collect();
+        filtered.truncate(20);
+        filtered
     });
 
     // Reset selection when search changes
@@ -87,7 +110,7 @@ pub fn QuickSwitcher() -> Element {
             if let Some(item) = items.read().get(idx) {
                 let sql = match item {
                     SwitcherItem::Table { name } => {
-                        format!("SELECT * FROM \"{}\" LIMIT 100;", name)
+                        format_select_all_sql(current_db_type(), name, 100)
                     }
                     SwitcherItem::Query { sql, .. } => sql.clone(),
                     SwitcherItem::History { sql, .. } => sql.clone(),
@@ -129,6 +152,11 @@ pub fn QuickSwitcher() -> Element {
     } else {
         "bg-blue-100"
     };
+    let hover_bg = if is_dark {
+        "hover:bg-gray-800"
+    } else {
+        "hover:bg-gray-100"
+    };
 
     rsx! {
         div {
@@ -165,15 +193,18 @@ pub fn QuickSwitcher() -> Element {
                         for (idx, item) in items.read().iter().enumerate() {
                             {
                                 let is_selected = idx == *selected_index.read();
+                                let row_class = format!(
+                                    "w-full px-4 py-3 text-left flex items-center space-x-3 transition-colors {}",
+                                    if is_selected { selected_bg } else { hover_bg }
+                                );
                                 let item = item.clone();
                                 rsx! {
                                     button {
-                                        class: "w-full px-4 py-3 text-left flex items-center space-x-3 transition-colors",
-                                        class: if is_selected { "{selected_bg}" } else { "hover:bg-gray-800" },
+                                        class: "{row_class}",
                                         onclick: move |_| {
                                             let sql = match &item {
                                                 SwitcherItem::Table { name } => {
-                                                    format!("SELECT * FROM \"{}\" LIMIT 100;", name)
+                                                    format_select_all_sql(current_db_type(), name, 100)
                                                 }
                                                 SwitcherItem::Query { sql, .. } => sql.clone(),
                                                 SwitcherItem::History { sql, .. } => sql.clone(),

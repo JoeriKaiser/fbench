@@ -87,9 +87,12 @@ pub enum DbRequest {
     TestConnection(ConnectionConfig),
     Execute(String),
     Explain(String),
+    #[allow(dead_code)]
     ListTables,
     FetchSchema,
+    #[allow(dead_code)]
     FetchTableDetails(String),
+    #[allow(dead_code)]
     Disconnect,
     // Phase 2: Data mutations
     ExecuteMutation(String),
@@ -104,12 +107,13 @@ pub enum DbRequest {
 
 #[derive(Debug)]
 pub enum DbResponse {
-    Connected(DatabaseType),
+    Connected(DatabaseType, String),
     ConnectionFailed(String),
     TestResult(Result<(), String>),
     QueryResult(QueryResult),
     ExplainResult(String),
     Schema(SchemaInfo),
+    #[allow(dead_code)]
     TableDetails(TableInfo),
     Error(String),
     Disconnected,
@@ -140,6 +144,44 @@ pub struct QueryResult {
     pub execution_time_ms: u64,
     pub source_table: Option<String>,
     pub primary_keys: Vec<String>,
+}
+
+pub fn quote_identifier(db_type: DatabaseType, identifier: &str) -> String {
+    identifier
+        .split('.')
+        .map(|part| {
+            let part = part.trim();
+            if (part.starts_with('"') && part.ends_with('"'))
+                || (part.starts_with('`') && part.ends_with('`'))
+            {
+                part.to_string()
+            } else {
+                match db_type {
+                    DatabaseType::PostgreSQL => format!("\"{}\"", part.replace('"', "\"\"")),
+                    DatabaseType::MySQL => format!("`{}`", part.replace('`', "``")),
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+pub fn format_select_all_sql(db_type: DatabaseType, table: &str, limit: usize) -> String {
+    format!(
+        "SELECT * FROM {} LIMIT {};",
+        quote_identifier(db_type, table),
+        limit
+    )
+}
+
+pub fn normalize_table_name(table: &str) -> String {
+    table
+        .trim()
+        .rsplit('.')
+        .next()
+        .unwrap_or(table.trim())
+        .trim_matches(|c| c == '"' || c == '`')
+        .to_string()
 }
 
 /// Extract table name from simple SELECT queries.

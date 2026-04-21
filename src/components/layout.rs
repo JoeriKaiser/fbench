@@ -3,8 +3,78 @@ use crate::config::{SessionState, SessionStore};
 use crate::state::*;
 use dioxus::prelude::*;
 
+const APP_STYLE: &str = r#"
+    /* Ensure solid background for window */
+    :root {
+        --bg-color: black;
+        --text-color: #d1d5db;
+        --border-color: #1f2937;
+        --input-bg: black;
+        --button-hover: #374151;
+        --scrollbar-hover: #4b5563;
+        --resize-hover-bg: #374151;
+    }
+
+    html, body {
+        background: var(--bg-color);
+        color: var(--text-color);
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+    }
+
+    /* Shiki syntax highlighting styles */
+    .shiki {
+        background-color: transparent !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    .shiki code {
+        background-color: transparent !important;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 0.875rem;
+        line-height: 1.5rem;
+    }
+    .shiki span {
+        background-color: transparent !important;
+    }
+
+    /* Scrollbar styling for webkit browsers */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: var(--border-color);
+        border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--scrollbar-hover);
+    }
+
+    /* Resize handle styles */
+    .resize-handle {
+        cursor: ns-resize;
+        user-select: none;
+        touch-action: none;
+    }
+    .resize-handle:hover {
+        background: var(--resize-hover-bg);
+    }
+"#;
+
 #[component]
 pub fn AppLayout() -> Element {
+    use_hook(|| {
+        spawn(async move {
+            inject_app_style().await;
+        });
+    });
+
     // Initialize system theme detection
     use_effect(|| {
         spawn(async move {
@@ -20,7 +90,7 @@ pub fn AppLayout() -> Element {
     // Listen for system theme changes
     use_effect(|| {
         spawn(async move {
-            let _ = listen_for_theme_changes().await;
+            listen_for_theme_changes().await;
         });
     });
 
@@ -34,8 +104,19 @@ pub fn AppLayout() -> Element {
     let is_resizing = *IS_RESIZING_PANELS.read();
     let is_dark = *IS_DARK_MODE.read();
 
+    use_effect(move || {
+        spawn(async move {
+            apply_theme_variables(is_dark).await;
+        });
+    });
+
     // Save session state when UI changes
     use_effect(move || {
+        let is_resizing = *IS_RESIZING_PANELS.read();
+        if is_resizing {
+            return;
+        }
+
         let left_tab = match *LEFT_TAB.read() {
             LeftTab::Schema => "Schema",
             LeftTab::Queries => "Queries",
@@ -75,80 +156,6 @@ pub fn AppLayout() -> Element {
         document::Script {
             src: "https://unpkg.com/lucide@latest",
         }
-
-        document::Style {{
-            let is_dark = *IS_DARK_MODE.read();
-            let bg_color = if is_dark { "black" } else { "white" };
-            let text_color = if is_dark { "#d1d5db" } else { "#374151" };
-            let border_color = if is_dark { "#1f2937" } else { "#e5e7eb" };
-            let input_bg = if is_dark { "black" } else { "white" };
-            let button_hover = if is_dark { "#374151" } else { "#f3f4f6" };
-            let scrollbar_hover = if is_dark { "#4b5563" } else { "#d1d5db" };
-            let resize_hover_bg = if is_dark { "#374151" } else { "#d1d5db" };
-
-            format!(r#"
-            /* Ensure solid background for window */
-            html, body {{
-                background: {bg_color};
-                margin: 0;
-                padding: 0;
-                width: 100%;
-                height: 100%;
-            }}
-            
-            /* Shiki syntax highlighting styles */
-            .shiki {{
-                background-color: transparent !important;
-                margin: 0 !important;
-                padding: 0 !important;
-            }}
-            .shiki code {{
-                background-color: transparent !important;
-                font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-                font-size: 0.875rem;
-                line-height: 1.5rem;
-            }}
-            /* Ensure highlighted text is visible on dark background */
-            .shiki span {{
-                background-color: transparent !important;
-            }}
-            
-            /* Theme-aware variables */
-            :root {{
-                --bg-color: {bg_color};
-                --text-color: {text_color};
-                --border-color: {border_color};
-                --input-bg: {input_bg};
-                --button-hover: {button_hover};
-            }}
-            
-            /* Scrollbar styling for webkit browsers */
-            ::-webkit-scrollbar {{
-                width: 8px;
-                height: 8px;
-            }}
-            ::-webkit-scrollbar-track {{
-                background: transparent;
-            }}
-            ::-webkit-scrollbar-thumb {{
-                background: {border_color};
-                border-radius: 4px;
-            }}
-            ::-webkit-scrollbar-thumb:hover {{
-                background: {scrollbar_hover};
-            }}
-            
-            /* Resize handle styles */
-            .resize-handle {{
-                cursor: ns-resize;
-                user-select: none;
-                touch-action: none;
-            }}
-            .resize-handle:hover {{
-                background: {resize_hover_bg};
-            }}
-            "#)
-        }}
 
         div {
             class: "h-screen w-screen flex flex-col overflow-hidden {theme_class}",
@@ -254,15 +261,68 @@ async fn detect_system_theme() -> bool {
 }
 
 async fn listen_for_theme_changes() {
-    // Set up listener for theme changes
-    let _ = document::eval(
+    let mut eval = document::eval(
         r#"
         const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        dioxus.send(mediaQuery.matches);
         mediaQuery.addEventListener('change', (e) => {
-            // Dispatch a custom event that Dioxus can listen to
-            window.dispatchEvent(new CustomEvent('themechange', { detail: { isDark: e.matches } }));
+            dioxus.send(e.matches);
         });
     "#,
-    )
+    );
+
+    while let Ok(is_dark) = eval.recv::<bool>().await {
+        *IS_DARK_MODE.write() = is_dark;
+    }
+}
+
+async fn apply_theme_variables(is_dark: bool) {
+    let (
+        bg_color,
+        text_color,
+        border_color,
+        input_bg,
+        button_hover,
+        scrollbar_hover,
+        resize_hover_bg,
+    ) = if is_dark {
+        (
+            "black", "#d1d5db", "#1f2937", "black", "#374151", "#4b5563", "#374151",
+        )
+    } else {
+        (
+            "white", "#374151", "#e5e7eb", "white", "#f3f4f6", "#d1d5db", "#d1d5db",
+        )
+    };
+
+    let _ = document::eval(&format!(
+        r#"
+        const root = document.documentElement;
+        root.style.setProperty('--bg-color', '{bg_color}');
+        root.style.setProperty('--text-color', '{text_color}');
+        root.style.setProperty('--border-color', '{border_color}');
+        root.style.setProperty('--input-bg', '{input_bg}');
+        root.style.setProperty('--button-hover', '{button_hover}');
+        root.style.setProperty('--scrollbar-hover', '{scrollbar_hover}');
+        root.style.setProperty('--resize-hover-bg', '{resize_hover_bg}');
+        "#
+    ))
+    .await;
+}
+
+async fn inject_app_style() {
+    let css = serde_json::to_string(APP_STYLE).unwrap_or_else(|_| "\"\"".to_string());
+    let _ = document::eval(&format!(
+        r#"
+        const styleId = 'fbench-app-style';
+        let style = document.getElementById(styleId);
+        if (!style) {{
+            style = document.createElement('style');
+            style.id = styleId;
+            document.head.appendChild(style);
+        }}
+        style.textContent = {css};
+        "#
+    ))
     .await;
 }

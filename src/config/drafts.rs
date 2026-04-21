@@ -1,13 +1,6 @@
-use crate::state::QueryTab;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct EditorDraft {
-    pub content: String,
-    pub saved_at: Option<chrono::DateTime<chrono::Utc>>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TabDraft {
@@ -38,46 +31,8 @@ impl DraftStore {
         }
     }
 
-    pub fn load(&self) -> EditorDraft {
-        fs::read_to_string(&self.config_path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
-    }
-
-    pub fn save(&self, content: &str) -> Result<(), String> {
-        let draft = EditorDraft {
-            content: content.to_string(),
-            saved_at: Some(chrono::Utc::now()),
-        };
-        let json = serde_json::to_string_pretty(&draft).map_err(|e| e.to_string())?;
-        fs::write(&self.config_path, json).map_err(|e| e.to_string())
-    }
-
-    pub fn clear(&self) -> Result<(), String> {
-        let draft = EditorDraft::default();
-        let json = serde_json::to_string_pretty(&draft).map_err(|e| e.to_string())?;
-        fs::write(&self.config_path, json).map_err(|e| e.to_string())
-    }
-
-    // Multi-tab support
-    pub fn save_tabs(&self, tabs: &[QueryTab], active_id: Option<&str>) -> Result<(), String> {
-        let active_index = active_id
-            .and_then(|id| tabs.iter().position(|t| t.id == id))
-            .unwrap_or(0);
-
-        let data = DraftData {
-            tabs: tabs
-                .iter()
-                .map(|t| TabDraft {
-                    title: t.title.clone(),
-                    content: t.content.clone(),
-                })
-                .collect(),
-            active_tab_index: active_index,
-        };
-
-        let json = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
+    pub fn save_draft_data(&self, data: &DraftData) -> Result<(), String> {
+        let json = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
         fs::write(&self.config_path, json).map_err(|e| e.to_string())
     }
 

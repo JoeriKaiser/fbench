@@ -1,8 +1,16 @@
 use crate::components::context_menu::show_table_context_menu;
 use crate::config::RecentTablesStore;
+use crate::db::format_select_all_sql;
 use crate::services::LlmSender;
 use crate::state::*;
 use dioxus::prelude::*;
+
+fn current_db_type() -> DatabaseType {
+    match *CONNECTION.read() {
+        ConnectionState::Connected { db_type, .. } => db_type,
+        _ => DatabaseType::PostgreSQL,
+    }
+}
 
 #[component]
 pub fn SchemaPanel() -> Element {
@@ -328,7 +336,7 @@ fn TableItem(table: crate::db::TableInfo) -> Element {
                     button {
                         class: "mt-2 px-2 py-1 text-xs {item_text} hover:text-blue-500 text-left transition-colors",
                         onclick: move |_| {
-                            let sql = format!("SELECT * FROM \"{}\" LIMIT 100;", table_name_for_select);
+                            let sql = format_select_all_sql(current_db_type(), &table_name_for_select, 100);
                             if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
                                 tab.content = sql;
                                 tab.unsaved_changes = true;
@@ -370,7 +378,7 @@ fn ViewItem(view: String) -> Element {
             button {
                 class: "w-full flex items-center space-x-2 px-2 py-1.5 rounded text-sm {item_text} {item_hover} text-left transition-colors",
                 onclick: move |_| {
-                    let sql = format!("SELECT * FROM \"{}\" LIMIT 100;", view);
+                    let sql = format_select_all_sql(current_db_type(), &view, 100);
                     if let Some(tab) = EDITOR_TABS.write().active_tab_mut() {
                         tab.content = sql;
                         tab.unsaved_changes = true;

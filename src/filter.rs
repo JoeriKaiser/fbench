@@ -100,21 +100,6 @@ impl FilterOperator {
             Self::IsNotNull => "IS NOT NULL",
         }
     }
-
-    pub fn all_variants() -> Vec<Self> {
-        vec![
-            Self::Equal,
-            Self::NotEqual,
-            Self::GreaterThan,
-            Self::LessThan,
-            Self::GreaterOrEqual,
-            Self::LessOrEqual,
-            Self::Like,
-            Self::NotLike,
-            Self::IsNull,
-            Self::IsNotNull,
-        ]
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

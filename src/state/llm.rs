@@ -8,14 +8,6 @@ pub struct LlmPreset {
     pub prompt: &'static str,
 }
 
-/// AI action types for context menu
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum AiAction {
-    Explain,
-    Optimize,
-    FixError,
-}
-
 /// AI panel state for displaying results
 #[derive(Clone, Debug, PartialEq)]
 pub struct AiPanelState {

@@ -50,79 +50,14 @@ fn SaveQueryDialogContent() -> Element {
         "text-gray-900"
     };
 
-    let on_save = move |_| {
-        tracing::info!("Save button clicked in dialog");
-        let name = query_name.read().trim().to_string();
-        if name.is_empty() {
-            error_message.set(Some("Please enter a query name".to_string()));
-            return;
-        }
-
-        let sql = EDITOR_TABS
-            .read()
-            .active_tab()
-            .map(|t| t.content.clone())
-            .unwrap_or_default();
-        if sql.trim().is_empty() {
-            error_message.set(Some("Query content is empty".to_string()));
-            return;
-        }
-
-        let store = QueryStore::new();
-        let mut queries = store.load_queries();
-
-        // Check if query with this name already exists
-        if queries.iter().any(|q| q.name == name) {
-            error_message.set(Some("A query with this name already exists".to_string()));
-            return;
-        }
-
-        queries.push(SavedQuery {
-            name,
-            sql,
-            is_bookmarked: false,
-        });
-
-        if let Err(e) = store.save_queries(&queries) {
-            error_message.set(Some(format!("Failed to save query: {}", e)));
-            return;
-        }
-
-        tracing::info!("Query saved successfully");
-
-        // Trigger refresh of queries panel
-        *QUERIES_REVISION.write() += 1;
-
-        // Close dialog and reset
-        *SHOW_SAVE_QUERY_DIALOG.write() = false;
-        query_name.set(String::new());
-        error_message.set(None);
-    };
-
-    let on_cancel = move |_| {
-        *SHOW_SAVE_QUERY_DIALOG.write() = false;
-        query_name.set(String::new());
-        error_message.set(None);
-    };
-
-    let on_overlay_click = move |_| {
-        *SHOW_SAVE_QUERY_DIALOG.write() = false;
-        query_name.set(String::new());
-        error_message.set(None);
-    };
-
-    let on_dialog_click = move |e: MouseEvent| {
-        e.stop_propagation();
-    };
-
     rsx! {
         div {
             class: "fixed inset-0 {overlay_bg} flex items-center justify-center z-50",
-            onclick: on_overlay_click,
+            onclick: move |_| close_save_query_dialog(query_name, error_message),
 
             div {
                 class: "{dialog_bg} border {dialog_border} rounded-lg shadow-2xl w-[400px] max-w-[90vw]",
-                onclick: on_dialog_click,
+                onclick: move |e: MouseEvent| e.stop_propagation(),
 
                 div {
                     class: "p-6 space-y-4",
@@ -142,9 +77,15 @@ fn SaveQueryDialogContent() -> Element {
                             r#type: "text",
                             placeholder: "My Query",
                             value: "{query_name}",
+                            autofocus: true,
                             oninput: move |e| {
                                 query_name.set(e.value().clone());
                                 error_message.set(None);
+                            },
+                            onkeydown: move |e| {
+                                if e.key() == Key::Enter {
+                                    save_query(query_name, error_message);
+                                }
                             },
                         }
                     }
@@ -165,13 +106,13 @@ fn SaveQueryDialogContent() -> Element {
                             } else {
                                 "px-4 py-2 text-sm rounded transition-colors bg-gray-100 hover:bg-gray-200 text-gray-700"
                             },
-                            onclick: on_cancel,
+                            onclick: move |_| close_save_query_dialog(query_name, error_message),
                             "Cancel"
                         }
 
                         button {
                             class: "px-4 py-2 text-sm rounded transition-colors bg-blue-600 hover:bg-blue-500 text-white",
-                            onclick: on_save,
+                            onclick: move |_| save_query(query_name, error_message),
                             "Save"
                         }
                     }
@@ -179,4 +120,55 @@ fn SaveQueryDialogContent() -> Element {
             }
         }
     }
+}
+
+fn save_query(query_name: Signal<String>, mut error_message: Signal<Option<String>>) {
+    tracing::info!("Save button clicked in dialog");
+    let name = query_name.read().trim().to_string();
+    if name.is_empty() {
+        error_message.set(Some("Please enter a query name".to_string()));
+        return;
+    }
+
+    let sql = EDITOR_TABS
+        .read()
+        .active_tab()
+        .map(|t| t.content.clone())
+        .unwrap_or_default();
+    if sql.trim().is_empty() {
+        error_message.set(Some("Query content is empty".to_string()));
+        return;
+    }
+
+    let store = QueryStore::new();
+    let mut queries = store.load_queries();
+
+    if queries.iter().any(|q| q.name == name) {
+        error_message.set(Some("A query with this name already exists".to_string()));
+        return;
+    }
+
+    queries.push(SavedQuery {
+        name,
+        sql,
+        is_bookmarked: false,
+    });
+
+    if let Err(e) = store.save_queries(&queries) {
+        error_message.set(Some(format!("Failed to save query: {}", e)));
+        return;
+    }
+
+    tracing::info!("Query saved successfully");
+    *QUERIES_REVISION.write() += 1;
+    close_save_query_dialog(query_name, error_message);
+}
+
+fn close_save_query_dialog(
+    mut query_name: Signal<String>,
+    mut error_message: Signal<Option<String>>,
+) {
+    *SHOW_SAVE_QUERY_DIALOG.write() = false;
+    query_name.set(String::new());
+    error_message.set(None);
 }

@@ -5,7 +5,9 @@ use std::fs;
 #[derive(Clone, Copy, Debug)]
 pub enum ExportFormat {
     Csv,
+    #[allow(dead_code)]
     Json,
+    #[allow(dead_code)]
     Xml,
 }
 
